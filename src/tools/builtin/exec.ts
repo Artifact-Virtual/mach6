@@ -25,14 +25,18 @@ export const execTool: ToolDefinition = {
     const pty = input.pty as boolean ?? false;
 
     // Safety: prevent agent from killing/restarting its own daemon
-    const DANGEROUS_PATTERNS = [
-      /systemctl.*(?:restart|stop|kill).*mach6/i,
-      /\bkill\s+.*\b(?:mach6|daemon\.js)/i,
-      /pkill.*(?:mach6|daemon)/i,
-    ];
-    for (const pattern of DANGEROUS_PATTERNS) {
-      if (pattern.test(command)) {
-        return `Error: Cannot restart/kill the Mach6 gateway from within an agent session. This causes instability. Ask Ali to restart manually if needed.`;
+    // EXCEPT: `ava` CLI is the sanctioned failsafe — always allowed
+    const isAvaCommand = /^\s*ava\s+(restart|stop|status|logs|follow)\b/.test(command);
+    if (!isAvaCommand) {
+      const DANGEROUS_PATTERNS = [
+        /systemctl.*(?:restart|stop|kill).*mach6/i,
+        /\bkill\s+.*\b(?:mach6|daemon\.js)/i,
+        /pkill.*(?:mach6|daemon)/i,
+      ];
+      for (const pattern of DANGEROUS_PATTERNS) {
+        if (pattern.test(command)) {
+          return `Error: Cannot restart/kill the Mach6 gateway from within an agent session. Use \'ava restart\' instead.`;
+        }
       }
     }
 

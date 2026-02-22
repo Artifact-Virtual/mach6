@@ -14,6 +14,7 @@ import { ChannelRegistry } from '../channels/registry.js';
 import { DiscordAdapter } from '../channels/adapters/discord.js';
 import { WhatsAppAdapter } from '../channels/adapters/whatsapp.js';
 import { ToolRegistry } from '../tools/registry.js';
+import { presenceManager } from '../channels/presence.js';
 import { readTool } from '../tools/builtin/read.js';
 import { writeTool } from '../tools/builtin/write.js';
 import { execTool } from '../tools/builtin/exec.js';
@@ -210,6 +211,7 @@ export class Mach6Gateway {
         policy,
       );
       console.log('  ✅ Discord connected');
+      presenceManager.registerAdapter('discord-main', (chatId) => adapter.typing(chatId));
     }
 
     // WhatsApp
@@ -237,6 +239,7 @@ export class Mach6Gateway {
         policy,
       );
       console.log('  ✅ WhatsApp connected');
+      presenceManager.registerAdapter('whatsapp-main', (chatId) => adapter.typing(chatId));
     }
   }
 
@@ -323,11 +326,9 @@ export class Mach6Gateway {
     this.activeTurns.set(sessionId, turn);
     this.channelRegistry.setSessionActive(sessionId, true);
 
-    // Send typing indicator
-    const adapter = this.channelRegistry.get(envelope.source.adapterId);
-    if (adapter?.typing) {
-      adapter.typing(envelope.source.chatId).catch(() => {});
-    }
+    // Start sustained typing (refreshes every 4s until response sent)
+    const typingTarget = { adapterId: envelope.source.adapterId, chatId: envelope.source.chatId };
+    presenceManager.startTyping(typingTarget);
 
     try {
       // Load or create session
@@ -366,7 +367,6 @@ export class Mach6Gateway {
       };
 
       // Run agent
-      const chatIdForTyping = envelope.source.chatId;
       console.log(`[gateway] Starting agent turn for ${sessionId} (${envelope.source.channelType}/${envelope.source.chatId})`);
       const turnStartTime = Date.now();
       const result = await runAgent(session.messages, {
@@ -383,9 +383,6 @@ export class Mach6Gateway {
         },
         onToolStart: (name) => {
           console.log(`  ⚡ ${name}`);
-          if (adapter?.typing) {
-            adapter.typing(chatIdForTyping).catch(() => {});
-          }
         },
         onToolEnd: (name, res) => {
           const preview = res.length > 100 ? res.slice(0, 100) + '...' : res;
@@ -453,6 +450,7 @@ export class Mach6Gateway {
     } finally {
       this.activeTurns.delete(sessionId);
       this.channelRegistry.setSessionActive(sessionId, false);
+      presenceManager.stopTyping(typingTarget);
 
       // Process any pending messages that arrived during this turn
       const pending = this.pendingEnvelopes.get(sessionId);
@@ -515,6 +513,7 @@ export class Mach6Gateway {
       // Disconnect all channels
       await this.channelRegistry.destroy();
 
+      presenceManager.stopAll();
       console.log('[gateway] Shutdown complete.');
       process.exit(0);
     };

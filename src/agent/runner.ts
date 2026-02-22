@@ -6,6 +6,7 @@ import type { ToolRegistry } from '../tools/registry.js';
 import { truncateContext } from './context.js';
 import { ContextMonitor } from './context-monitor.js';
 import type { PolicyEngine } from '../tools/policy.js';
+import { sanitizeToolResult, logInjectionAttempt } from '../security/sanitizer.js';
 
 export interface RunnerConfig {
   provider: Provider;
@@ -165,6 +166,12 @@ export async function runAgent(
           if (result.length > MAX_RESULT_SIZE) {
             result = result.slice(0, MAX_RESULT_SIZE) + `\n\n[Truncated: result was ${result.length} bytes, limit is ${MAX_RESULT_SIZE}]`;
           }
+          // Sanitize tool result before it enters the LLM context
+          const sanitized = sanitizeToolResult(tc.name, result);
+          if (sanitized.injectionDetected) {
+            logInjectionAttempt(tc.name, sanitized.patterns, result);
+          }
+          result = sanitized.text;
           config.onToolEnd?.(tc.name, result);
           return { tc, result, isError: false };
         } catch (err) {
