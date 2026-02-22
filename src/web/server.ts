@@ -129,7 +129,7 @@ function matchRoute(pattern: string, pathname: string): Record<string, string> |
 
 const PROVIDERS = [
   { id: 'anthropic', name: 'Anthropic', models: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-5-haiku-20241022'] },
-  { id: 'openai', name: 'OpenAI', models: ['gpt-4o', 'gpt-4o-mini', 'o1-preview'] },
+
   { id: 'github-copilot', name: 'GitHub Copilot', models: ['claude-sonnet-4-20250514', 'gpt-4o'] },
   { id: 'gladius', name: 'GLADIUS (Local)', models: ['gladius-125m', 'gladius-1b'] },
 ];

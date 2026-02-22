@@ -23,7 +23,7 @@ const ERROR_SUGGESTIONS: { match: (provider: string, status: number, body: strin
   },
   {
     match: (p, s) => p === 'openai' && s === 401,
-    suggestion: '401 from OpenAI? Check API key (starts with "sk-"). Verify OPENAI_API_KEY env var.',
+    suggestion: '401 from OpenAI-compatible endpoint? If using Copilot, check GitHub token.',
   },
   {
     match: (_, s) => s === 429,

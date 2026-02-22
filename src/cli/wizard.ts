@@ -20,7 +20,7 @@ interface WizardConfig {
 
 const PROVIDERS = [
   { id: 'anthropic', name: 'Anthropic (Claude)', defaultModel: 'claude-sonnet-4-20250514' },
-  { id: 'openai', name: 'OpenAI (GPT)', defaultModel: 'gpt-4o' },
+
   { id: 'github-copilot', name: 'GitHub Copilot', defaultModel: 'claude-sonnet-4-20250514' },
   { id: 'gladius', name: 'GLADIUS (Local)', defaultModel: 'gladius-125m' },
 ];

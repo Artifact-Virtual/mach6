@@ -19,7 +19,7 @@ export function validateConfig(config: Mach6Config): ValidationError[] {
 
   // Check provider config
   if (!config.defaultProvider) {
-    issues.push({ field: 'defaultProvider', message: 'No default provider set', severity: 'error', suggestion: 'Set defaultProvider to one of: anthropic, openai, github-copilot, gladius' });
+    issues.push({ field: 'defaultProvider', message: 'No default provider set', severity: 'error', suggestion: 'Set defaultProvider to one of: github-copilot, gladius' });
   }
 
   if (!config.defaultModel) {
@@ -31,9 +31,7 @@ export function validateConfig(config: Mach6Config): ValidationError[] {
     issues.push({ field: 'providers.anthropic.apiKey', message: 'API key looks too short', severity: 'warning', suggestion: 'Anthropic keys start with "sk-ant-" and are ~100+ chars' });
   }
 
-  if (config.providers.openai?.apiKey && !config.providers.openai.apiKey.startsWith('sk-')) {
-    issues.push({ field: 'providers.openai.apiKey', message: 'OpenAI key does not start with "sk-"', severity: 'warning', suggestion: 'OpenAI API keys start with "sk-"' });
-  }
+
 
   // Validate temperature
   if (config.temperature < 0 || config.temperature > 2) {

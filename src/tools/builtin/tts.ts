@@ -1,6 +1,6 @@
 // Mach6 — Builtin tool: text-to-speech
 // Uses edge-tts (free, Microsoft) as primary, no API key needed.
-// Falls back to OpenAI TTS if edge-tts is unavailable.
+// Free, no API key needed.
 
 import fs from 'node:fs';
 import path from 'node:path';

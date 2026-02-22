@@ -25,7 +25,7 @@ export interface HeartbeatConfigBlock {
 export interface Mach6Config {
   providers: {
     anthropic?: { apiKey?: string; baseUrl?: string; timeoutMs?: number };
-    openai?: { apiKey?: string; baseUrl?: string; timeoutMs?: number };
+    // openai provider exists as protocol layer (used by Copilot/Gladius) but not as direct config
     'github-copilot'?: { baseUrl?: string; timeoutMs?: number };
     gladius?: { baseUrl?: string; timeoutMs?: number };
   };
