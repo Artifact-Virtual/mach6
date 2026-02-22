@@ -17,9 +17,12 @@ function convertMessages(messages: Message[]): unknown[] {
       continue;
     }
     if (msg.role === 'assistant' && msg.tool_calls?.length) {
+      // Always use empty string for content (not null) — some backends
+      // interpret null content on assistant messages as prefill attempts
+      const content = typeof msg.content === 'string' && msg.content.trim() ? msg.content : '';
       out.push({
         role: 'assistant',
-        content: typeof msg.content === 'string' ? msg.content || null : null,
+        content,
         tool_calls: msg.tool_calls.map(tc => ({
           id: tc.id,
           type: 'function',
