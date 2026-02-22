@@ -253,6 +253,9 @@ export class Mach6Gateway {
       );
       console.log('  ✅ Discord connected');
       presenceManager.registerAdapter('discord-main', (chatId) => adapter.typing(chatId));
+      // Register Discord client for rich activity presence
+      const discordClient = adapter.getClient();
+      if (discordClient) presenceManager.registerDiscordClient('discord-main', discordClient);
     }
 
     // Extra Discord bots (e.g., AVA_direct for the AVA community server)
@@ -278,6 +281,9 @@ export class Mach6Gateway {
         );
         console.log(`  ✅ Discord (${adapterId}) connected`);
         presenceManager.registerAdapter(adapterId, (chatId) => extraAdapter.typing(chatId));
+        // Register extra Discord client for rich activity presence
+        const extraClient = extraAdapter.getClient();
+        if (extraClient) presenceManager.registerDiscordClient(adapterId, extraClient);
       }
     }
 
@@ -472,13 +478,19 @@ export class Mach6Gateway {
             this.sessionManager.trackUsage(session, ev.usage.inputTokens, ev.usage.outputTokens);
             console.log(`  📊 tokens: +${ev.usage.inputTokens}in/+${ev.usage.outputTokens}out`);
           }
+          // Update presence when LLM starts streaming
+          if (ev.type === 'text_delta' || ev.type === 'done') {
+            presenceManager.llmStreaming();
+          }
         },
         onToolStart: (name) => {
           console.log(`  ⚡ ${name}`);
+          presenceManager.toolStart(name);
         },
         onToolEnd: (name, res) => {
           const preview = res.length > 100 ? res.slice(0, 100) + '...' : res;
           console.log(`  ✓ ${name}: ${preview.split('\n')[0]}`);
+          presenceManager.toolEnd(name);
         },
       });
 
