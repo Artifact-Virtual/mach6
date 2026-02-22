@@ -21,11 +21,10 @@ export const editTool: ToolDefinition = {
     const oldText = input.oldText as string;
     const newText = input.newText as string;
 
-    // Safety: prevent agent from modifying Mach6 engine source code
-    const mach6Dir = path.resolve('.contingency/mach6-core/src');
+    // Safety: prevent agent from modifying Mach6 compiled output at runtime
     const mach6Dist = path.resolve('.contingency/mach6-core/dist');
-    if (filePath.startsWith(mach6Dir) || filePath.startsWith(mach6Dist)) {
-      return `Error: Cannot edit Mach6 engine source/dist from within an agent session. This causes instability. Coordinate changes through the Discord admin session.`;
+    if (filePath.startsWith(mach6Dist)) {
+      return `Error: Cannot edit Mach6 compiled dist from within an agent session. This causes runtime instability. Edit source files instead and rebuild.`;
     }
 
     if (!fs.existsSync(filePath)) return `Error: File not found: ${filePath}`;

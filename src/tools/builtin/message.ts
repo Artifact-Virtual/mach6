@@ -1,6 +1,6 @@
-// Mach6 — Builtin tool: proactive messaging
-// Send messages, media, and reactions to any connected channel.
-// This is what makes AVA proactive instead of just reactive.
+// Mach6 — Builtin tool: proactive messaging & social actions
+// Send messages, media, reactions, typing indicators, presence updates.
+// This is what makes AVA a social being, not just a responder.
 
 import type { ToolDefinition } from '../types.js';
 import type { ChannelRegistry } from '../../channels/registry.js';
@@ -26,7 +26,7 @@ export function createMessageTool(registry: ChannelRegistry): ToolDefinition {
         },
         chatId: {
           type: 'string',
-          description: 'Chat/channel ID. WhatsApp: "1234567890@s.whatsapp.net" or group JID. Discord: channel ID.',
+          description: 'Chat/channel ID. WhatsApp: JID or LID. Discord: channel ID.',
         },
         content: {
           type: 'string',
@@ -78,13 +78,13 @@ export function createMessageTool(registry: ChannelRegistry): ToolDefinition {
         return JSON.stringify({ error: `No running adapter for channel "${channel}". Available: ${adapters.map(a => `${a.channelType}(${a.status})`).join(', ')}` });
       }
 
+      const adapter = registry.get(target.id);
+      if (!adapter) return JSON.stringify({ error: 'Adapter not found' });
+
       // ── Reaction ──
       if (action === 'react') {
         if (!emoji) return JSON.stringify({ error: 'emoji is required for reactions' });
         if (!messageId) return JSON.stringify({ error: 'messageId is required for reactions' });
-
-        const adapter = registry.get(target.id);
-        if (!adapter) return JSON.stringify({ error: 'Adapter not found' });
 
         if (typeof (adapter as any).react === 'function') {
           try {
@@ -138,6 +138,212 @@ export function createMessageTool(registry: ChannelRegistry): ToolDefinition {
         });
       } catch (err) {
         return JSON.stringify({ error: `Send failed: ${err instanceof Error ? err.message : String(err)}` });
+      }
+    },
+  };
+}
+
+/** Typing indicator tool */
+export function createTypingTool(registry: ChannelRegistry): ToolDefinition {
+  return {
+    name: 'typing',
+    description: 'Send a typing indicator to a chat. Shows "typing..." to the recipient. WhatsApp supports composing/recording/paused. Discord shows typing for ~10 seconds.',
+    parameters: {
+      type: 'object',
+      properties: {
+        channel: {
+          type: 'string',
+          description: 'Channel type: "whatsapp" or "discord"',
+          enum: ['whatsapp', 'discord'],
+        },
+        chatId: {
+          type: 'string',
+          description: 'Chat/channel ID',
+        },
+        duration: {
+          type: 'number',
+          description: 'Duration in milliseconds (default 3000). WhatsApp only.',
+        },
+      },
+      required: ['channel', 'chatId'],
+    },
+    async execute(input) {
+      const channel = input.channel as string;
+      const chatId = input.chatId as string;
+      const duration = (input.duration as number) ?? 3000;
+
+      const adapters = registry.list();
+      const target = adapters.find(a => a.channelType === channel && a.status === 'running');
+      if (!target) {
+        return JSON.stringify({ error: `No running adapter for "${channel}"` });
+      }
+
+      const adapter = registry.get(target.id);
+      if (!adapter || typeof (adapter as any).typing !== 'function') {
+        return JSON.stringify({ error: `Adapter "${channel}" does not support typing indicators` });
+      }
+
+      try {
+        await (adapter as any).typing(chatId, duration);
+        return JSON.stringify({ success: true, action: 'typing', channel, chatId, duration });
+      } catch (err) {
+        return JSON.stringify({ error: `Typing failed: ${err instanceof Error ? err.message : String(err)}` });
+      }
+    },
+  };
+}
+
+/** Presence update tool (WhatsApp) */
+export function createPresenceTool(registry: ChannelRegistry): ToolDefinition {
+  return {
+    name: 'presence',
+    description: 'Update presence status on WhatsApp. States: "available" (online), "unavailable" (offline), "composing" (typing), "recording" (recording voice), "paused" (stopped typing). Discord presence is managed by the bot framework.',
+    parameters: {
+      type: 'object',
+      properties: {
+        channel: {
+          type: 'string',
+          description: 'Channel type (currently only "whatsapp" supports presence)',
+          enum: ['whatsapp'],
+        },
+        chatId: {
+          type: 'string',
+          description: 'Chat ID to update presence for',
+        },
+        state: {
+          type: 'string',
+          description: 'Presence state: "available", "unavailable", "composing", "recording", "paused"',
+          enum: ['available', 'unavailable', 'composing', 'recording', 'paused'],
+        },
+      },
+      required: ['channel', 'chatId', 'state'],
+    },
+    async execute(input) {
+      const channel = input.channel as string;
+      const chatId = input.chatId as string;
+      const state = input.state as string;
+
+      const adapters = registry.list();
+      const target = adapters.find(a => a.channelType === channel && a.status === 'running');
+      if (!target) {
+        return JSON.stringify({ error: `No running adapter for "${channel}"` });
+      }
+
+      const adapter = registry.get(target.id);
+      if (!adapter) return JSON.stringify({ error: 'Adapter not found' });
+
+      // Access the socket directly for presence updates
+      const socket = (adapter as any).getSocket?.() ?? (adapter as any).socket;
+      if (!socket) {
+        return JSON.stringify({ error: 'WhatsApp socket not available' });
+      }
+
+      try {
+        await socket.presenceSubscribe(chatId);
+        await socket.sendPresenceUpdate(state, chatId);
+        return JSON.stringify({ success: true, action: 'presence', channel, chatId, state });
+      } catch (err) {
+        return JSON.stringify({ error: `Presence update failed: ${err instanceof Error ? err.message : String(err)}` });
+      }
+    },
+  };
+}
+
+/** Delete message tool */
+export function createDeleteMessageTool(registry: ChannelRegistry): ToolDefinition {
+  return {
+    name: 'delete_message',
+    description: 'Delete a message from a chat. WhatsApp: deletes for everyone. Discord: deletes bot\'s own messages.',
+    parameters: {
+      type: 'object',
+      properties: {
+        channel: {
+          type: 'string',
+          description: 'Channel type: "whatsapp" or "discord"',
+          enum: ['whatsapp', 'discord'],
+        },
+        chatId: {
+          type: 'string',
+          description: 'Chat/channel ID',
+        },
+        messageId: {
+          type: 'string',
+          description: 'ID of the message to delete',
+        },
+      },
+      required: ['channel', 'chatId', 'messageId'],
+    },
+    async execute(input) {
+      const channel = input.channel as string;
+      const chatId = input.chatId as string;
+      const messageId = input.messageId as string;
+
+      const adapters = registry.list();
+      const target = adapters.find(a => a.channelType === channel && a.status === 'running');
+      if (!target) {
+        return JSON.stringify({ error: `No running adapter for "${channel}"` });
+      }
+
+      const adapter = registry.get(target.id);
+      if (!adapter || typeof (adapter as any).deleteMessage !== 'function') {
+        return JSON.stringify({ error: `Adapter "${channel}" does not support message deletion` });
+      }
+
+      try {
+        await (adapter as any).deleteMessage(chatId, messageId);
+        return JSON.stringify({ success: true, action: 'delete', channel, chatId, messageId });
+      } catch (err) {
+        return JSON.stringify({ error: `Delete failed: ${err instanceof Error ? err.message : String(err)}` });
+      }
+    },
+  };
+}
+
+/** Mark messages as read tool */
+export function createMarkReadTool(registry: ChannelRegistry): ToolDefinition {
+  return {
+    name: 'mark_read',
+    description: 'Mark a message as read (sends read receipt / blue ticks on WhatsApp).',
+    parameters: {
+      type: 'object',
+      properties: {
+        channel: {
+          type: 'string',
+          description: 'Channel type: "whatsapp" or "discord"',
+          enum: ['whatsapp', 'discord'],
+        },
+        chatId: {
+          type: 'string',
+          description: 'Chat/channel ID',
+        },
+        messageId: {
+          type: 'string',
+          description: 'ID of the message to mark as read',
+        },
+      },
+      required: ['channel', 'chatId', 'messageId'],
+    },
+    async execute(input) {
+      const channel = input.channel as string;
+      const chatId = input.chatId as string;
+      const messageId = input.messageId as string;
+
+      const adapters = registry.list();
+      const target = adapters.find(a => a.channelType === channel && a.status === 'running');
+      if (!target) {
+        return JSON.stringify({ error: `No running adapter for "${channel}"` });
+      }
+
+      const adapter = registry.get(target.id);
+      if (!adapter || typeof (adapter as any).markRead !== 'function') {
+        return JSON.stringify({ error: `Adapter "${channel}" does not support read receipts` });
+      }
+
+      try {
+        await (adapter as any).markRead(chatId, messageId);
+        return JSON.stringify({ success: true, action: 'mark_read', channel, chatId, messageId });
+      } catch (err) {
+        return JSON.stringify({ error: `Mark read failed: ${err instanceof Error ? err.message : String(err)}` });
       }
     },
   };

@@ -30,7 +30,7 @@ import { ttsTool } from '../tools/builtin/tts.js';
 import { webFetchTool } from '../tools/builtin/web-fetch.js';
 import { memorySearchTool } from '../tools/builtin/memory.js';
 import { combRecallTool, combStageTool } from '../tools/builtin/comb.js';
-import { createMessageTool } from '../tools/builtin/message.js';
+import { createMessageTool, createTypingTool, createPresenceTool, createDeleteMessageTool, createMarkReadTool } from '../tools/builtin/message.js';
 import { SessionManager } from '../sessions/manager.js';
 import { buildSystemPrompt } from '../agent/system-prompt.js';
 import { runAgent } from '../agent/runner.js';
@@ -153,6 +153,10 @@ export class Mach6Gateway {
 
     // Register message tool (needs channelRegistry — must come after registry creation)
     this.toolRegistry.register(createMessageTool(this.channelRegistry));
+    this.toolRegistry.register(createTypingTool(this.channelRegistry));
+    this.toolRegistry.register(createPresenceTool(this.channelRegistry));
+    this.toolRegistry.register(createDeleteMessageTool(this.channelRegistry));
+    this.toolRegistry.register(createMarkReadTool(this.channelRegistry));
 
     // Rebuild system prompt now that all tools are registered
     this.systemPrompt = buildSystemPrompt({
