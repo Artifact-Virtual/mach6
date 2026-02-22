@@ -9,7 +9,6 @@
   "providers": {
     "github-copilot": {},
     "anthropic": {},
-    "openai": {},
     "gladius": {
       "baseUrl": "http://127.0.0.1:8741"
     }
@@ -26,7 +25,9 @@
       "dmPolicy": "allowlist",
       "groupPolicy": "mention-only",
       "requireMention": true,
-      "allowedSenders": ["your-discord-user-id"],
+      "allowedSenders": [
+        "your-discord-user-id"
+      ],
       "allowedGroups": []
     }
   },
@@ -38,7 +39,9 @@
     "policy": {
       "dmPolicy": "allowlist",
       "groupPolicy": "mention-only",
-      "allowedSenders": ["your-phone@s.whatsapp.net"],
+      "allowedSenders": [
+        "your-phone@s.whatsapp.net"
+      ],
       "allowedGroups": []
     }
   },

@@ -76,9 +76,7 @@ function resolveEnvKeys(config: Mach6Config): Mach6Config {
   if (!config.providers.anthropic?.apiKey && process.env.ANTHROPIC_API_KEY) {
     config.providers.anthropic = { ...config.providers.anthropic, apiKey: process.env.ANTHROPIC_API_KEY };
   }
-  if (!config.providers.openai?.apiKey && process.env.OPENAI_API_KEY) {
-    config.providers.openai = { ...config.providers.openai, apiKey: process.env.OPENAI_API_KEY };
-  }
+  // OpenAI direct API removed — we route through GitHub Copilot
   return config;
 }
 
