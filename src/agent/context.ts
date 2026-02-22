@@ -17,49 +17,80 @@ function messageSize(msg: Message): number {
   }, 0);
 }
 
-/** Check if a message contains tool_use blocks (assistant requesting tool calls) */
-function hasToolUse(msg: Message): boolean {
+// ── Tool pair detection (handles BOTH internal OpenAI-style and Anthropic-native formats) ──
+
+/** Check if message is an assistant requesting tool calls (OpenAI-style: tool_calls array) */
+function hasToolCalls(msg: Message): boolean {
+  if (msg.role === 'assistant' && msg.tool_calls?.length) return true;
+  return false;
+}
+
+/** Check if message is a tool result (OpenAI-style: role=tool with tool_call_id) */
+function isToolResult(msg: Message): boolean {
+  return msg.role === 'tool' && !!msg.tool_call_id;
+}
+
+/** Check if a message contains Anthropic-native tool_use blocks */
+function hasToolUseBlocks(msg: Message): boolean {
   if (typeof msg.content === 'string') return false;
   return msg.content.some((b: ContentBlock) => b.type === 'tool_use');
 }
 
-/** Check if a message contains tool_result blocks (user returning tool results) */
-function hasToolResult(msg: Message): boolean {
+/** Check if a message contains Anthropic-native tool_result blocks */
+function hasToolResultBlocks(msg: Message): boolean {
   if (typeof msg.content === 'string') return false;
   return msg.content.some((b: ContentBlock) => b.type === 'tool_result');
 }
 
-/** Get all tool_use IDs from a message */
-function getToolUseIds(msg: Message): Set<string> {
+/** Get tool call IDs from a message (OpenAI-style tool_calls or Anthropic-native tool_use blocks) */
+function getToolCallIds(msg: Message): Set<string> {
   const ids = new Set<string>();
-  if (typeof msg.content === 'string') return ids;
-  for (const b of msg.content) {
-    if (b.type === 'tool_use' && b.id) ids.add(b.id);
+  // OpenAI-style
+  if (msg.tool_calls) {
+    for (const tc of msg.tool_calls) ids.add(tc.id);
+  }
+  // Anthropic-native
+  if (typeof msg.content !== 'string') {
+    for (const b of msg.content) {
+      if (b.type === 'tool_use' && b.id) ids.add(b.id);
+    }
   }
   return ids;
 }
 
-/** Get all tool_use_ids referenced by tool_result blocks in a message */
+/** Get tool_use_ids referenced by this message (OpenAI-style tool_call_id or Anthropic-native tool_result blocks) */
 function getToolResultRefs(msg: Message): Set<string> {
   const ids = new Set<string>();
-  if (typeof msg.content === 'string') return ids;
-  for (const b of msg.content) {
-    if (b.type === 'tool_result' && b.tool_use_id) ids.add(b.tool_use_id);
+  // OpenAI-style
+  if (msg.tool_call_id) ids.add(msg.tool_call_id);
+  // Anthropic-native
+  if (typeof msg.content !== 'string') {
+    for (const b of msg.content) {
+      if (b.type === 'tool_result' && b.tool_use_id) ids.add(b.tool_use_id);
+    }
   }
   return ids;
+}
+
+/** Check if message is any kind of tool-call-making message */
+function isToolCallMsg(msg: Message): boolean {
+  return hasToolCalls(msg) || hasToolUseBlocks(msg);
+}
+
+/** Check if message is any kind of tool-result message */
+function isToolResultMsg(msg: Message): boolean {
+  return isToolResult(msg) || hasToolResultBlocks(msg);
 }
 
 /**
  * Truncate message history to fit within a token budget.
  * Strategy: keep system prompt + last N messages, drop oldest first.
- * CRITICAL: tool_use (assistant) and tool_result (user) messages must stay paired.
- * If a tool_result survives, its preceding tool_use must also survive, and vice versa.
+ * CRITICAL: tool_use/tool_result messages must stay paired.
  */
 export function truncateContext(messages: Message[], maxTokens: number): Message[] {
   const total = messages.reduce((sum, m) => sum + messageSize(m), 0);
   if (total <= maxTokens) return messages;
 
-  // Always keep the first system message and last few messages
   const system = messages.filter(m => m.role === 'system');
   const rest = messages.filter(m => m.role !== 'system');
 
@@ -75,8 +106,7 @@ export function truncateContext(messages: Message[], maxTokens: number): Message
     keepFlags[i] = true;
   }
 
-  // Integrity pass: ensure tool_use/tool_result pairs are complete.
-  // Walk forward through kept messages and enforce pairing.
+  // Integrity pass: ensure tool pairs are complete
   let changed = true;
   while (changed) {
     changed = false;
@@ -84,50 +114,52 @@ export function truncateContext(messages: Message[], maxTokens: number): Message
     for (let i = 0; i < rest.length; i++) {
       if (!keepFlags[i]) continue;
 
-      // If this message has tool_results, find the preceding assistant with matching tool_use
-      if (hasToolResult(rest[i])) {
+      // If this is a tool result, find its matching tool call (search backward)
+      if (isToolResultMsg(rest[i])) {
         const refs = getToolResultRefs(rest[i]);
-        // Search backwards for the assistant message with these tool_use IDs
         for (let j = i - 1; j >= 0; j--) {
-          if (rest[j].role === 'assistant' && hasToolUse(rest[j])) {
-            const useIds = getToolUseIds(rest[j]);
-            const hasMatch = [...refs].some(r => useIds.has(r));
-            if (hasMatch && !keepFlags[j]) {
-              keepFlags[j] = true;
-              budget -= messageSize(rest[j]);
-              changed = true;
+          if (isToolCallMsg(rest[j])) {
+            const callIds = getToolCallIds(rest[j]);
+            if ([...refs].some(r => callIds.has(r))) {
+              if (!keepFlags[j]) {
+                keepFlags[j] = true;
+                budget -= messageSize(rest[j]);
+                changed = true;
+              }
+              break;
             }
-            if (hasMatch) break; // found the pair
           }
         }
       }
 
-      // If this message has tool_use, find the following user message with matching tool_results
-      if (rest[i].role === 'assistant' && hasToolUse(rest[i])) {
-        const useIds = getToolUseIds(rest[i]);
+      // If this is a tool call, find its matching result (search forward)
+      if (isToolCallMsg(rest[i])) {
+        const callIds = getToolCallIds(rest[i]);
+        // There may be MULTIPLE tool results for one assistant message (parallel calls)
         for (let j = i + 1; j < rest.length; j++) {
-          if (hasToolResult(rest[j])) {
+          if (isToolResultMsg(rest[j])) {
             const refs = getToolResultRefs(rest[j]);
-            const hasMatch = [...useIds].some(u => refs.has(u));
-            if (hasMatch && !keepFlags[j]) {
-              keepFlags[j] = true;
-              budget -= messageSize(rest[j]);
-              changed = true;
+            if ([...callIds].some(c => refs.has(c))) {
+              if (!keepFlags[j]) {
+                keepFlags[j] = true;
+                budget -= messageSize(rest[j]);
+                changed = true;
+              }
+              // Don't break — there may be more results for this tool call batch
             }
-            if (hasMatch) break; // found the pair
+          } else if (rest[j].role === 'assistant') {
+            break; // Next assistant turn, stop searching
           }
         }
       }
     }
   }
 
-  // If we're still over budget after pairing, drop the oldest pairs until we fit
+  // Over budget after pairing — drop oldest complete groups
   if (budget < 0) {
     for (let i = 0; i < rest.length && budget < 0; i++) {
       if (!keepFlags[i]) continue;
-      // Don't orphan a pair — check if dropping this would orphan something
-      const canDrop = !wouldOrphan(rest, keepFlags, i);
-      if (canDrop) {
+      if (!wouldOrphan(rest, keepFlags, i)) {
         keepFlags[i] = false;
         budget += messageSize(rest[i]);
       }
@@ -136,9 +168,8 @@ export function truncateContext(messages: Message[], maxTokens: number): Message
 
   const kept = rest.filter((_, i) => keepFlags[i]);
 
-  // Final safety: ensure conversation doesn't start with a tool_result
-  // (which would mean its tool_use got dropped despite our efforts)
-  while (kept.length > 0 && hasToolResult(kept[0])) {
+  // Final safety: strip any leading tool results (orphaned)
+  while (kept.length > 0 && isToolResultMsg(kept[0])) {
     kept.shift();
   }
 
@@ -149,26 +180,24 @@ export function truncateContext(messages: Message[], maxTokens: number): Message
 function wouldOrphan(msgs: Message[], flags: boolean[], dropIdx: number): boolean {
   const msg = msgs[dropIdx];
 
-  if (msg.role === 'assistant' && hasToolUse(msg)) {
-    const useIds = getToolUseIds(msg);
-    // Check if any kept message references these tool_use IDs
+  if (isToolCallMsg(msg)) {
+    const callIds = getToolCallIds(msg);
     for (let j = dropIdx + 1; j < msgs.length; j++) {
       if (!flags[j]) continue;
-      if (hasToolResult(msgs[j])) {
+      if (isToolResultMsg(msgs[j])) {
         const refs = getToolResultRefs(msgs[j]);
-        if ([...useIds].some(u => refs.has(u))) return true;
+        if ([...callIds].some(c => refs.has(c))) return true;
       }
     }
   }
 
-  if (hasToolResult(msg)) {
+  if (isToolResultMsg(msg)) {
     const refs = getToolResultRefs(msg);
-    // Check if any kept assistant message has these tool_use IDs
     for (let j = dropIdx - 1; j >= 0; j--) {
       if (!flags[j]) continue;
-      if (msgs[j].role === 'assistant' && hasToolUse(msgs[j])) {
-        const useIds = getToolUseIds(msgs[j]);
-        if ([...refs].some(r => useIds.has(r))) return true;
+      if (isToolCallMsg(msgs[j])) {
+        const callIds = getToolCallIds(msgs[j]);
+        if ([...refs].some(r => callIds.has(r))) return true;
       }
     }
   }

@@ -10,6 +10,19 @@ function convertMessages(messages: Message[]): { system?: string; messages: unkn
   let system: string | undefined;
   const converted: unknown[] = [];
 
+  // Build set of all tool_call IDs from assistant messages for orphan detection
+  const allToolCallIds = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role === 'assistant' && msg.tool_calls) {
+      for (const tc of msg.tool_calls) allToolCallIds.add(tc.id);
+    }
+    if (msg.role === 'assistant' && typeof msg.content !== 'string') {
+      for (const b of msg.content as ContentBlock[]) {
+        if (b.type === 'tool_use' && b.id) allToolCallIds.add(b.id);
+      }
+    }
+  }
+
   for (const msg of messages) {
     if (msg.role === 'system') {
       system = typeof msg.content === 'string' ? msg.content : msg.content.map(b => b.text ?? '').join('');
@@ -17,6 +30,11 @@ function convertMessages(messages: Message[]): { system?: string; messages: unkn
     }
 
     if (msg.role === 'tool') {
+      // Skip orphaned tool results
+      if (msg.tool_call_id && !allToolCallIds.has(msg.tool_call_id)) {
+        console.warn(`[anthropic] Skipping orphaned tool result: ${msg.tool_call_id}`);
+        continue;
+      }
       // Anthropic expects tool results as user messages with tool_result content blocks
       converted.push({
         role: 'user',

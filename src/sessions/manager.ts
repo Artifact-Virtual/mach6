@@ -2,10 +2,72 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Message } from '../providers/types.js';
 import type { Session, SessionSummary, SessionMetadata } from './types.js';
 
 const DEFAULT_DIR = '.mach6/sessions';
 const DEFAULT_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/**
+ * Sanitize message history to remove orphaned tool results/calls.
+ * A tool result (role=tool with tool_call_id) is orphaned if no preceding
+ * assistant message has a matching tool_call. This prevents Anthropic API 400 errors.
+ */
+function sanitizeToolPairs(messages: Message[]): Message[] {
+  // Build set of all tool_call IDs from assistant messages
+  const allToolCallIds = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role === 'assistant' && msg.tool_calls) {
+      for (const tc of msg.tool_calls) allToolCallIds.add(tc.id);
+    }
+    // Also check Anthropic-native content blocks
+    if (msg.role === 'assistant' && typeof msg.content !== 'string') {
+      for (const b of msg.content) {
+        if (b.type === 'tool_use' && b.id) allToolCallIds.add(b.id);
+      }
+    }
+  }
+
+  // Build set of all tool_result references
+  const allResultRefs = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role === 'tool' && msg.tool_call_id) allResultRefs.add(msg.tool_call_id);
+    if (typeof msg.content !== 'string') {
+      for (const b of msg.content) {
+        if (b.type === 'tool_result' && b.tool_use_id) allResultRefs.add(b.tool_use_id);
+      }
+    }
+  }
+
+  const filtered = messages.filter(msg => {
+    // Drop orphaned tool results (no matching tool_call)
+    if (msg.role === 'tool' && msg.tool_call_id) {
+      if (!allToolCallIds.has(msg.tool_call_id)) {
+        console.log(`[sessions] Dropping orphaned tool result: ${msg.tool_call_id}`);
+        return false;
+      }
+    }
+    // Drop Anthropic-native orphaned tool_result blocks
+    if (typeof msg.content !== 'string' && msg.content.some(b => b.type === 'tool_result')) {
+      const hasOrphan = msg.content.some(b => b.type === 'tool_result' && b.tool_use_id && !allToolCallIds.has(b.tool_use_id));
+      if (hasOrphan) {
+        // Filter out just the orphaned blocks, keep any non-orphaned content
+        const validBlocks = msg.content.filter(b => {
+          if (b.type === 'tool_result' && b.tool_use_id && !allToolCallIds.has(b.tool_use_id)) {
+            console.log(`[sessions] Dropping orphaned tool_result block: ${b.tool_use_id}`);
+            return false;
+          }
+          return true;
+        });
+        if (validBlocks.length === 0) return false;
+        msg.content = validBlocks;
+      }
+    }
+    return true;
+  });
+
+  return filtered;
+}
 
 export class SessionManager {
   private dir: string;
@@ -52,6 +114,8 @@ export class SessionManager {
       if (!data.metadata || typeof data.metadata !== 'object' || !('messageCount' in data.metadata)) {
         data.metadata = { ...this.defaultMetadata(), ...(data.metadata as Record<string, unknown> ?? {}) } as SessionMetadata;
       }
+      // Sanitize tool pairs — remove orphaned tool results/calls
+      data.messages = sanitizeToolPairs(data.messages);
       return data;
     } catch {
       return null;
