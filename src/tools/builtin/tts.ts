@@ -62,8 +62,22 @@ export const ttsTool: ToolDefinition = {
     // Try edge-tts first (free)
     const ok = await edgeTTS(text, voice, speed, filepath);
     if (ok) {
+      // Also generate OGG opus (required for WhatsApp voice notes)
+      const oggPath = filepath.replace('.mp3', '.ogg');
+      try {
+        execSync(`ffmpeg -y -i "${filepath}" -codec:a libopus -b:a 64k "${oggPath}"`, { stdio: 'pipe', timeout: 30_000 });
+      } catch { /* mp3 still works for non-WhatsApp */ }
+
       const size = fs.statSync(filepath).size;
-      return JSON.stringify({ path: filepath, size, voice, engine: 'edge-tts' });
+      const oggExists = fs.existsSync(oggPath);
+      return JSON.stringify({
+        path: filepath,
+        oggPath: oggExists ? oggPath : undefined,
+        size,
+        voice,
+        engine: 'edge-tts',
+        note: 'Use oggPath for WhatsApp voice notes (mp3 wont play inline)',
+      });
     }
 
     return 'Error: TTS generation failed. edge-tts may not be installed.';
