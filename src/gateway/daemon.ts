@@ -15,6 +15,7 @@ import { DiscordAdapter } from '../channels/adapters/discord.js';
 import { WhatsAppAdapter } from '../channels/adapters/whatsapp.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { presenceManager } from '../channels/presence.js';
+import { HeartbeatScheduler } from '../heartbeat/scheduler.js';
 import { readTool } from '../tools/builtin/read.js';
 import { writeTool } from '../tools/builtin/write.js';
 import { execTool } from '../tools/builtin/exec.js';
@@ -30,6 +31,8 @@ import { ttsTool } from '../tools/builtin/tts.js';
 import { webFetchTool } from '../tools/builtin/web-fetch.js';
 import { memorySearchTool } from '../tools/builtin/memory.js';
 import { combRecallTool, combStageTool } from '../tools/builtin/comb.js';
+import { createSpawnTool, createSubAgentStatusTool } from '../tools/builtin/spawn.js';
+import { SubAgentManager } from '../sessions/sub-agent.js';
 import { createMessageTool, createTypingTool, createPresenceTool, createDeleteMessageTool, createMarkReadTool } from '../tools/builtin/message.js';
 import { SessionManager } from '../sessions/manager.js';
 import { buildSystemPrompt } from '../agent/system-prompt.js';
@@ -102,6 +105,8 @@ export class Mach6Gateway {
   private model: string;
   private systemPrompt: string;
   private shutdownRequested = false;
+  private heartbeat: HeartbeatScheduler;
+  private subAgentManager: SubAgentManager;
   private startTime = Date.now();
 
   constructor(gatewayConfig: GatewayConfig) {
@@ -133,6 +138,16 @@ export class Mach6Gateway {
       this.toolRegistry.register(tool);
     }
 
+    // Heartbeat scheduler
+    const hbConfig = (this.gatewayConfig as any).heartbeat ?? {};
+    this.heartbeat = new HeartbeatScheduler({
+      activeIntervalMin: hbConfig.activeIntervalMin ?? 30,
+      idleIntervalMin: hbConfig.idleIntervalMin ?? 120,
+      sleepingIntervalMin: hbConfig.sleepingIntervalMin ?? 360,
+      quietHoursStart: hbConfig.quietHoursStart ?? 23,
+      quietHoursEnd: hbConfig.quietHoursEnd ?? 8,
+    });
+
     // Sessions
     this.sessionManager = new SessionManager(this.config.sessionsDir);
 
@@ -157,6 +172,20 @@ export class Mach6Gateway {
     this.toolRegistry.register(createPresenceTool(this.channelRegistry));
     this.toolRegistry.register(createDeleteMessageTool(this.channelRegistry));
     this.toolRegistry.register(createMarkReadTool(this.channelRegistry));
+
+    // Sub-agent manager + spawn tools
+    this.subAgentManager = new SubAgentManager(this.sessionManager);
+    const provCfg = (this.config.providers as Record<string, any>)[this.providerName] ?? {};
+    const spawnProvConfig = {
+      model: this.model,
+      maxTokens: this.config.maxTokens,
+      temperature: this.config.temperature,
+      ...provCfg,
+    };
+    this.toolRegistry.register(createSpawnTool(
+      this.subAgentManager, this.provider, spawnProvConfig, this.toolRegistry, this.config.workspace
+    ));
+    this.toolRegistry.register(createSubAgentStatusTool(this.subAgentManager));
 
     // Rebuild system prompt now that all tools are registered
     this.systemPrompt = buildSystemPrompt({
@@ -328,6 +357,11 @@ export class Mach6Gateway {
     };
 
     this.activeTurns.set(sessionId, turn);
+
+    // Record user activity for heartbeat scheduling
+    if (envelope.source.adapterId !== 'heartbeat') {
+      this.heartbeat.recordUserActivity();
+    }
     this.channelRegistry.setSessionActive(sessionId, true);
 
     // Start sustained typing (refreshes every 4s until response sent)
@@ -382,7 +416,8 @@ export class Mach6Gateway {
         abortSignal: controller.signal,
         onEvent: (ev) => {
           if (ev.type === 'usage') {
-            // Track tokens
+            this.sessionManager.trackUsage(session, ev.usage.inputTokens, ev.usage.outputTokens);
+            console.log(`  📊 tokens: +${ev.usage.inputTokens}in/+${ev.usage.outputTokens}out`);
           }
         },
         onToolStart: (name) => {
@@ -403,6 +438,9 @@ export class Mach6Gateway {
         session.messages.push({ role: 'assistant', content: result.text });
       }
       this.sessionManager.save(session);
+
+      // Auto-archive bloated sessions (>200KB → keep last 30 messages)
+      this.sessionManager.autoArchive();
 
       // Send response back through the channel
       if (result.text && result.text !== 'NO_REPLY' && result.text !== 'HEARTBEAT_OK') {
@@ -518,6 +556,7 @@ export class Mach6Gateway {
       await this.channelRegistry.destroy();
 
       presenceManager.stopAll();
+      this.heartbeat.stop();
       console.log('[gateway] Shutdown complete.');
       process.exit(0);
     };

@@ -128,4 +128,73 @@ export class SessionManager {
     this.save(session);
     return true;
   }
+
+  // ── Session Archival ─────────────────────────────────────────────────────
+
+  private archiveDir(): string {
+    const dir = path.join(this.dir, 'archive');
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  /**
+   * Archive a session: move old messages to an archive file, keep only
+   * the system prompt + last N messages in the active session.
+   * Returns number of messages archived.
+   */
+  archive(id: string, keepMessages = 20): number {
+    const session = this.load(id);
+    if (!session || session.messages.length <= keepMessages) return 0;
+
+    // Separate system prompt from conversation
+    const systemMsgs = session.messages.filter(m => m.role === 'system');
+    const convMsgs = session.messages.filter(m => m.role !== 'system');
+
+    if (convMsgs.length <= keepMessages) return 0;
+
+    // Archive the old messages
+    const toArchive = convMsgs.slice(0, convMsgs.length - keepMessages);
+    const toKeep = convMsgs.slice(convMsgs.length - keepMessages);
+
+    const archiveFile = path.join(this.archiveDir(), `${id.replace(/[^a-zA-Z0-9_\-:.]/g, '_')}-${Date.now()}.json`);
+    const archiveData = {
+      sessionId: id,
+      archivedAt: Date.now(),
+      messageCount: toArchive.length,
+      tokenUsage: { ...session.metadata.tokenUsage },
+      messages: toArchive,
+    };
+    fs.writeFileSync(archiveFile, JSON.stringify(archiveData));
+
+    // Update active session
+    session.messages = [...systemMsgs, ...toKeep];
+    this.save(session);
+
+    console.log(`[sessions] Archived ${toArchive.length} messages from ${id} → ${path.basename(archiveFile)}`);
+    return toArchive.length;
+  }
+
+  /**
+   * Auto-archive sessions that exceed a size threshold.
+   * Call periodically (e.g., after each agent turn).
+   */
+  autoArchive(maxSizeBytes = 200 * 1024, keepMessages = 30): number {
+    let totalArchived = 0;
+    try {
+      for (const f of fs.readdirSync(this.dir).filter(f => f.endsWith('.json'))) {
+        const fp = path.join(this.dir, f);
+        try {
+          const stat = fs.statSync(fp);
+          if (stat.size > maxSizeBytes) {
+            const id = f.replace('.json', '').replace(/_/g, '/');
+            // Load to get actual ID
+            const session = JSON.parse(fs.readFileSync(fp, 'utf-8')) as Session;
+            totalArchived += this.archive(session.id, keepMessages);
+          }
+        } catch { /* skip */ }
+      }
+    } catch { /* dir doesn't exist */ }
+    return totalArchived;
+  }
+
 }
