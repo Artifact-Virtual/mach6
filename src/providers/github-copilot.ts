@@ -1,0 +1,140 @@
+// Mach6 — GitHub Copilot proxy provider
+// Uses the copilot token exchange flow: GitHub PAT → copilot session token → OpenAI-compat API
+
+import fs from 'node:fs';
+import path from 'node:path';
+import type { Message, ToolDef, ProviderConfig, StreamEvent, Provider } from './types.js';
+import { openaiProvider } from './openai.js';
+
+const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token';
+const DEFAULT_BASE_URL = 'https://api.individual.githubcopilot.com';
+
+interface CachedToken {
+  token: string;
+  expiresAt: number; // ms epoch
+  updatedAt: number;
+}
+
+let cachedToken: CachedToken | null = null;
+
+function tokenCachePath(): string {
+  const home = process.env.HOME ?? '/tmp';
+  return path.join(home, '.openclaw', 'credentials', 'github-copilot.token.json');
+}
+
+function loadCachedToken(): CachedToken | null {
+  try {
+    const data = JSON.parse(fs.readFileSync(tokenCachePath(), 'utf-8'));
+    if (data?.token && data?.expiresAt) return data as CachedToken;
+  } catch { /* ignore */ }
+  return null;
+}
+
+function saveCachedToken(t: CachedToken): void {
+  try {
+    const p = tokenCachePath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify(t, null, 2));
+  } catch { /* best effort */ }
+}
+
+function isUsable(t: CachedToken): boolean {
+  return t.expiresAt - Date.now() > 5 * 60 * 1000; // 5 min margin
+}
+
+function deriveBaseUrl(token: string): string {
+  const match = token.match(/(?:^|;)\s*proxy-ep=([^;\s]+)/i);
+  const ep = match?.[1]?.trim();
+  if (!ep) return DEFAULT_BASE_URL;
+  const host = ep.replace(/^https?:\/\//, '').replace(/^proxy\./i, 'api.');
+  return `https://${host}`;
+}
+
+async function resolveGitHubToken(): Promise<string> {
+  // Copilot-specific env var takes highest priority
+  const copilotEnv = process.env.COPILOT_GITHUB_TOKEN;
+  if (copilotEnv?.trim()) return copilotEnv.trim();
+
+  // Copilot CLI token (ghu_ tokens work with copilot_internal endpoint)
+  const copilotCliPath = path.join(process.env.HOME ?? '', '.copilot-cli-access-token');
+  try {
+    const cliToken = fs.readFileSync(copilotCliPath, 'utf-8').trim();
+    if (cliToken) return cliToken;
+  } catch { /* not found */ }
+
+  // Fall back to general GitHub tokens
+  const envToken = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
+  if (envToken?.trim()) return envToken.trim();
+
+  // Try hosts.json
+  const hostsPath = path.join(process.env.HOME ?? '', '.config', 'github-copilot', 'hosts.json');
+  try {
+    const hosts = JSON.parse(fs.readFileSync(hostsPath, 'utf-8'));
+    for (const key of Object.keys(hosts)) {
+      if (hosts[key]?.oauth_token) return hosts[key].oauth_token;
+    }
+  } catch { /* not found */ }
+
+  throw new Error('No GitHub token found for Copilot (set GITHUB_TOKEN, GH_TOKEN, or COPILOT_GITHUB_TOKEN, or run: github-copilot-cli auth)');
+}
+
+async function resolveCopilotToken(): Promise<{ token: string; baseUrl: string }> {
+  // Check memory cache
+  if (cachedToken && isUsable(cachedToken)) {
+    return { token: cachedToken.token, baseUrl: deriveBaseUrl(cachedToken.token) };
+  }
+  // Check disk cache
+  const disk = loadCachedToken();
+  if (disk && isUsable(disk)) {
+    cachedToken = disk;
+    return { token: disk.token, baseUrl: deriveBaseUrl(disk.token) };
+  }
+
+  // Exchange GitHub PAT for copilot session token
+  const ghToken = await resolveGitHubToken();
+  const res = await fetch(COPILOT_TOKEN_URL, {
+    method: 'GET',
+    headers: { Accept: 'application/json', Authorization: `Bearer ${ghToken}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`Copilot token exchange failed: HTTP ${res.status}`);
+
+  const json = await res.json() as Record<string, unknown>;
+  const token = json.token as string;
+  let expiresAt = json.expires_at as number;
+  if (expiresAt < 10_000_000_000) expiresAt *= 1000; // seconds → ms
+
+  const entry: CachedToken = { token, expiresAt, updatedAt: Date.now() };
+  cachedToken = entry;
+  saveCachedToken(entry);
+
+  return { token, baseUrl: deriveBaseUrl(token) };
+}
+
+async function* streamCopilot(
+  messages: Message[],
+  tools: ToolDef[],
+  config: ProviderConfig,
+): AsyncIterable<StreamEvent> {
+  const { token, baseUrl } = await resolveCopilotToken();
+
+  // Copilot uses OpenAI-compatible API with extra headers
+  const copilotConfig: ProviderConfig = {
+    ...config,
+    apiKey: token,
+    baseUrl: config.baseUrl ?? baseUrl,
+    extraHeaders: {
+      'Editor-Version': 'vscode/1.96.2',
+      'User-Agent': 'GitHubCopilotChat/0.26.7',
+      'Copilot-Integration-Id': 'vscode-chat',
+      'Openai-Intent': 'conversation-panel',
+    },
+  } as ProviderConfig & { extraHeaders: Record<string, string> };
+
+  yield* openaiProvider.stream(messages, tools, copilotConfig);
+}
+
+export const githubCopilotProvider: Provider = {
+  name: 'github-copilot',
+  stream: streamCopilot,
+};

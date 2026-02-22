@@ -1,0 +1,17 @@
+{
+  "allowed_commands": [
+    "ls",
+    "cat",
+    "pwd",
+    "echo",
+    "grep",
+    "find",
+    "head",
+    "tail",
+    "wc",
+    "sort",
+    "uniq"
+  ],
+  "write_enabled": false,
+  "max_file_size": 500000
+}

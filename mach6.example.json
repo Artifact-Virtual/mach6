@@ -1,0 +1,46 @@
+{
+  "defaultProvider": "github-copilot",
+  "defaultModel": "claude-sonnet-4",
+  "maxTokens": 8192,
+  "maxIterations": 50,
+  "temperature": 0.3,
+  "workspace": "/path/to/your/workspace",
+  "sessionsDir": ".sessions",
+  "providers": {
+    "github-copilot": {},
+    "anthropic": {},
+    "openai": {},
+    "gladius": {
+      "baseUrl": "http://127.0.0.1:8741"
+    }
+  },
+  "ownerIds": [
+    "your-discord-user-id",
+    "your-phone@s.whatsapp.net"
+  ],
+  "discord": {
+    "enabled": true,
+    "token": "${DISCORD_BOT_TOKEN}",
+    "botId": "your-bot-id",
+    "policy": {
+      "dmPolicy": "allowlist",
+      "groupPolicy": "mention-only",
+      "requireMention": true,
+      "allowedSenders": ["your-discord-user-id"],
+      "allowedGroups": []
+    }
+  },
+  "whatsapp": {
+    "enabled": true,
+    "authDir": "~/.mach6/whatsapp-auth",
+    "phoneNumber": "your-phone-number",
+    "autoRead": true,
+    "policy": {
+      "dmPolicy": "allowlist",
+      "groupPolicy": "mention-only",
+      "allowedSenders": ["your-phone@s.whatsapp.net"],
+      "allowedGroups": []
+    }
+  },
+  "apiPort": 3006
+}

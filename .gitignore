@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.sessions/
+*.js
+*.js.map
+*.d.ts
+!src/**
+.env
+mach6.json

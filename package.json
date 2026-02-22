@@ -1,0 +1,23 @@
+{
+  "name": "mach6-core",
+  "version": "0.1.0",
+  "description": "Mach6 — Sovereign AI Agent Framework",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mach6": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc && node dist/index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "discord.js": "^14.25.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
