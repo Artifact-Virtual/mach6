@@ -394,6 +394,25 @@ export class Mach6Gateway {
       const userContent = this.buildUserContent(envelope);
       session.messages.push({ role: 'user', content: userContent });
 
+      // Pre-flight context trim: estimate token count and archive if approaching limit
+      // Rough estimate: 1 token ≈ 4 chars. Model limit 128K, leave 20K headroom.
+      const TOKEN_LIMIT = 128_000;
+      const HEADROOM = 20_000;
+      const estimatedTokens = session.messages.reduce((sum, m) => {
+        const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
+        return sum + Math.ceil(content.length / 4);
+      }, 0);
+      if (estimatedTokens > TOKEN_LIMIT - HEADROOM) {
+        console.log(`[gateway] ⚠️ Pre-flight trim: ~${estimatedTokens} tokens estimated (limit ${TOKEN_LIMIT}). Archiving...`);
+        const archived = this.sessionManager.archive(sessionId, 30);
+        console.log(`[gateway] Archived ${archived} messages. New count: ${session.messages.length}`);
+        // Reload session after archive
+        const trimmed = this.sessionManager.load(sessionId);
+        if (trimmed) {
+          session.messages = trimmed.messages;
+        }
+      }
+
       // Provider config
       const providerCfg = (this.config.providers as Record<string, any>)[this.providerName] ?? {};
       const provConfig: ProviderConfig = {
