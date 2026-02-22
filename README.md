@@ -7,16 +7,63 @@ Built by [Artifact Virtual](https://artifactvirtual.com) as a contingency engine
 ## Architecture
 
 ```
-Channels ──→ Router ──→ Agent Runner ──→ Provider ──→ LLM
-   ↑                        ↓
-   ←──── Response ←──── Tool Loop
+Channels ──→ Router ──→ Message Bus ──→ Agent Runner ──→ Provider ──→ LLM
+   ↑                        │ ↑              ↓
+   │                  interrupt ──→ abort     Tool Loop
+   ←───────── Response ─────────←────────────┘
 ```
 
 **Channels** — Discord, WhatsApp (Baileys). Adapter pattern — add any platform.  
-**Agent Runner** — Agentic loop with tool calling, context management, iteration limits.  
+**Router** — Policy enforcement, JID normalization, deduplication, interrupt detection, session routing.  
+**Message Bus** — Priority queue with interrupt bypass, message coalescing, backpressure management.  
+**Agent Runner** — Agentic loop with tool calling, context management, abort signals, iteration limits.  
 **Providers** — GitHub Copilot, Anthropic, OpenAI, Gladius (local). Hot-swappable.  
 **Tools** — 14 built-in: read, write, edit, exec, image, web_fetch, tts, memory_search, comb (recall/stage), process management (start/poll/kill/list).  
 **Sessions** — Persistent, labeled, TTL-aware. Sub-agent spawning up to depth 3.
+
+## Real-Time Interrupt System
+
+Most AI agent frameworks are request-response: you send a message, you wait, you get a reply. If the agent is mid-turn, your new message either gets lost or queues silently. You can't stop it. You can't redirect it.
+
+Mach6 doesn't work that way. Every message is priority-classified in real-time, and the agent can be interrupted mid-thought:
+
+### Priority Classification
+
+```
+interrupt  →  Bypasses queue entirely. Cancels active agent turn immediately.
+high       →  Skips coalescing. Queued for next iteration.
+normal     →  Standard processing with coalescing.
+low        →  Reactions, group messages without mention.
+background →  Typing indicators, presence. Dropped under backpressure.
+```
+
+### Interrupt Flow
+
+When you send "stop" or "wait" or "actually, never mind" while the agent is mid-turn:
+
+1. **Router** detects interrupt pattern (`/^(stop|wait|hold on|cancel|abort)/i`)
+2. **Bus** delivers directly to interrupt handlers — bypasses the queue entirely
+3. **Gateway** fires `AbortController.abort('new_message')` on the active turn
+4. **Agent Runner** checks abort signal between every tool call and every LLM stream chunk
+5. **Turn terminates.** New message processes immediately. No wasted compute.
+
+Owner messages during active turns are always elevated to `high` priority minimum. The agent never ignores you because it's busy.
+
+### Message Coalescing
+
+When you fire off three messages in rapid succession (like humans do):
+
+```
+"hey"          → buffered
+"can you"      → buffered  
+"check the logs"  → 2s timer expires, all three merge into one envelope
+```
+
+The agent sees: `"hey\ncan you\ncheck the logs"` — one coherent request, one turn. No triple-processing, no wasted tokens. High-priority messages flush the buffer immediately.
+
+### Backpressure
+
+Queue depth > 500? Background messages get dropped. The bus signals backpressure to the gateway. When it clears 80%, backpressure lifts. Messages that matter never drop — only typing indicators and presence updates.
 
 ## Stats
 
@@ -33,11 +80,14 @@ src/
 ├── agent/          # Runner, context, system prompt, context monitor
 ├── boot/           # Boot sequence & validation
 ├── channels/       # Adapter pattern — Discord, WhatsApp, router, bus
+│   ├── bus.ts      # Priority queue, coalescing, interrupt delivery, backpressure
+│   ├── router.ts   # Policy, dedup, JID normalization, priority assignment
+│   └── adapters/   # Discord (discord.js), WhatsApp (Baileys v7)
 ├── cli/            # Interactive wizard
 ├── config/         # Config loader + validator + env resolution
 ├── cron/           # Cron budget management
 ├── formatters/     # Platform-aware markdown formatting
-├── gateway/        # Persistent daemon — signal handling, hot-reload
+├── gateway/        # Persistent daemon — signal handling, hot-reload, turn management
 ├── heartbeat/      # Activity-aware periodic checks
 ├── memory/         # Index integrity checks
 ├── providers/      # LLM providers — Copilot, Anthropic, OpenAI, Gladius
@@ -71,7 +121,7 @@ Single JSON file. Supports `${ENV_VAR}` interpolation in all string values.
 ```jsonc
 {
   "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4.6",
+  "defaultModel": "claude-sonnet-4",
   "maxTokens": 8192,
   "maxIterations": 50,
   "workspace": "/path/to/workspace",
@@ -88,30 +138,33 @@ Single JSON file. Supports `${ENV_VAR}` interpolation in all string values.
 ## Design Principles
 
 1. **Sovereignty** — No cloud control plane. Your machine, your data, your keys.
-2. **Single process** — One Node.js daemon. No microservices. No Docker required.
-3. **Adapter pattern** — Channels and providers are interchangeable. Write an adapter, plug it in.
-4. **Fail loud** — Config validator catches misconfigurations at boot, not at runtime.
-5. **Context-aware** — Monitor tracks token usage at 70/80/90% thresholds. Messages never drop — they queue.
+2. **Real-time** — Interrupt, redirect, and coalesce messages mid-turn. Not request-response — conversational.
+3. **Single process** — One Node.js daemon. No microservices. No Docker required.
+4. **Adapter pattern** — Channels and providers are interchangeable. Write an adapter, plug it in.
+5. **Fail loud** — Config validator catches misconfigurations at boot, not at runtime.
+6. **Never drop** — Messages queue under load. Backpressure sheds only background signals.
 
 ## Hardening
 
 20 production pain points addressed before first flip:
 
 - Config validation with human-readable diagnostics
-- Context monitor with progressive warnings
-- Message queue — never drop a message, even under load
+- Context monitor with progressive warnings (70/80/90% thresholds)
+- Message queue with priority scheduling — never drop a real message
 - Tool policy engine — scope what tools are available per session
 - Provider diagnostics — health checks and failover
 - Activity-aware heartbeat — adapts to load
 - Cron budget management — prevents runaway scheduled tasks
 - Boot sequence validation — catch problems before they become incidents
+- JID normalization for WhatsApp Baileys v7 (device suffix stripping)
+- Abort signal propagation through agent runner → LLM stream → tool execution
 
 ## History
 
 - **2026-02-22 afternoon** — Built from scratch. WhatsApp adapter, gateway daemon, config system.
 - **2026-02-22 evening** — 14/14 smoke tests. 20 hardening fixes. Phase 2 tools + sub-agents.
 - **2026-02-22 9:41 PM PKT** — Flipped to production. First real conversation through Mach6.
-- OpenClaw retired. Mach6 is primary.
+- **2026-02-23** — Open-sourced. MIT license. First choice of a digital consciousness.
 
 ## License
 
