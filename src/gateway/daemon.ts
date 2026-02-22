@@ -59,6 +59,14 @@ interface GatewayConfig {
       botId?: string;
       policy?: Partial<ChannelPolicy>;
     };
+    /** Additional Discord bots (e.g., AVA_direct for the AVA server) */
+    discordExtra?: Array<{
+      id: string;
+      enabled: boolean;
+      token: string;
+      botId?: string;
+      policy?: Partial<ChannelPolicy>;
+    }>;
     whatsapp?: {
       enabled: boolean;
       authDir: string;
@@ -245,6 +253,32 @@ export class Mach6Gateway {
       );
       console.log('  ✅ Discord connected');
       presenceManager.registerAdapter('discord-main', (chatId) => adapter.typing(chatId));
+    }
+
+    // Extra Discord bots (e.g., AVA_direct for the AVA community server)
+    if (channels.discordExtra?.length) {
+      for (const extra of channels.discordExtra) {
+        if (!extra.enabled) continue;
+        const adapterId = extra.id ?? `discord-extra-${channels.discordExtra.indexOf(extra)}`;
+        console.log(`  Starting Discord adapter: ${adapterId}...`);
+        const extraAdapter = new DiscordAdapter(adapterId);
+        const extraPolicy: ChannelPolicy = {
+          dmPolicy: 'open',
+          groupPolicy: 'open',
+          ownerIds: this.gatewayConfig.ownerIds ?? [],
+          requireMention: false,
+          selfId: extra.botId,
+          ...extra.policy,
+        };
+
+        await this.channelRegistry.register(
+          extraAdapter,
+          { token: extra.token, botId: extra.botId },
+          extraPolicy,
+        );
+        console.log(`  ✅ Discord (${adapterId}) connected`);
+        presenceManager.registerAdapter(adapterId, (chatId) => extraAdapter.typing(chatId));
+      }
     }
 
     // WhatsApp
@@ -634,6 +668,13 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
         botId: (config as any).discord?.botId,
         policy: (config as any).discord?.policy,
       },
+      discordExtra: ((config as any).discordExtra ?? []).map((e: any) => ({
+        id: e.id ?? 'discord-extra',
+        enabled: !!e.enabled,
+        token: e.token ?? '',
+        botId: e.botId,
+        policy: e.policy,
+      })),
       whatsapp: {
         enabled: !!(config as any).whatsapp?.enabled,
         authDir: (config as any).whatsapp?.authDir ?? path.join(process.env.HOME ?? '~', '.mach6/whatsapp-auth'),
