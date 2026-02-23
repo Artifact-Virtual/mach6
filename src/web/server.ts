@@ -7,6 +7,7 @@ import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -287,7 +288,7 @@ function serveStatic(res: http.ServerResponse, filePath: string): void {
 
 // ── Router ─────────────────────────────────────────────────────────────────
 
-const WEB_DIR = path.resolve(import.meta.dirname ?? __dirname, '../../web');
+const WEB_DIR = path.resolve(import.meta.dirname ?? path.dirname(fileURLToPath(import.meta.url)), '../../web');
 
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const method = req.method ?? 'GET';

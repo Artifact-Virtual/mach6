@@ -24,6 +24,19 @@ export const execTool: ToolDefinition = {
     const background = input.background as boolean ?? false;
     const pty = input.pty as boolean ?? false;
 
+    // Self-kill guard: prevent AVA from stopping/restarting her own service or rewriting the ava script
+    const SELF_KILL_PATTERNS = [
+      /systemctl\s+(stop|restart|disable)\s+mach6/i,
+      /kill\s+.*mach6|pkill.*mach6/i,
+      />\s*\/home\/adam\/\.local\/bin\/ava/,
+      /write.*\/home\/adam\/\.local\/bin\/ava/i,
+    ];
+    for (const pat of SELF_KILL_PATTERNS) {
+      if (pat.test(command)) {
+        return `Error: Cannot restart/kill the gateway service from within the agent. Use the 'ava restart' CLI command from a terminal instead. This is a safety guard to prevent self-termination.`;
+      }
+    }
+
     // Background mode: delegate to process manager
     if (background) {
       const mgr = getProcessManager();

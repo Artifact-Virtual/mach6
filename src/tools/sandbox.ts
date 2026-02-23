@@ -18,6 +18,7 @@
 
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { ToolDefinition, ToolExecuteOptions } from './types.js';
 import type { ToolRegistry } from './registry.js';
 import type { ToolExecutor } from '../agent/runner.js';
@@ -78,7 +79,9 @@ function resolvePath(p: string): string {
 }
 
 /** Mach6 engine directory (absolute) */
-const MACH6_ROOT = path.resolve(__dirname, '..', '..');
+const __filename_esm = fileURLToPath(import.meta.url);
+const __dirname_esm = path.dirname(__filename_esm);
+const MACH6_ROOT = path.resolve(__dirname_esm, '..', '..');
 
 /**
  * Rule: No modifying Mach6 engine files (src/, dist/, config, package.json)
