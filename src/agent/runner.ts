@@ -1,17 +1,23 @@
 // Mach6 — Core Agent Runner
 // The heart: prompt → LLM → tool calls → loop → response
 
-import type { Message, ToolCall, StreamEvent, Provider, ProviderConfig } from '../providers/types.js';
-import type { ToolRegistry } from '../tools/registry.js';
+import type { Message, ToolCall, StreamEvent, Provider, ProviderConfig, ToolDef } from '../providers/types.js';
 import { truncateContext } from './context.js';
 import { ContextMonitor } from './context-monitor.js';
 import type { PolicyEngine } from '../tools/policy.js';
 import { sanitizeToolResult, logInjectionAttempt } from '../security/sanitizer.js';
 
+/** Minimal interface for tool registries (satisfied by both ToolRegistry and SandboxedToolRegistry) */
+export interface ToolExecutor {
+  toProviderFormat(): ToolDef[];
+  execute(name: string, input: Record<string, unknown>): Promise<string>;
+  list(): Array<{ name: string; description: string; parameters: any }>;
+}
+
 export interface RunnerConfig {
   provider: Provider;
   providerConfig: ProviderConfig;
-  toolRegistry: ToolRegistry;
+  toolRegistry: ToolExecutor;
   maxIterations?: number;
   maxContextTokens?: number;
   sessionId?: string;

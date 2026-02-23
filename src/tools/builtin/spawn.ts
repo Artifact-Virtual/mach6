@@ -4,13 +4,13 @@
 import type { ToolDefinition } from '../types.js';
 import type { SubAgentManager } from '../../sessions/sub-agent.js';
 import type { Provider, ProviderConfig } from '../../providers/types.js';
-import type { ToolRegistry } from '../registry.js';
+import type { ToolExecutor } from '../../agent/runner.js';
 
 export function createSpawnTool(
   subAgentManager: SubAgentManager,
   provider: Provider,
   providerConfig: ProviderConfig,
-  toolRegistry: ToolRegistry,
+  toolRegistry: ToolExecutor,
   workspace: string,
 ): ToolDefinition {
   return {

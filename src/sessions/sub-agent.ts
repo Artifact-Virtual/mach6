@@ -5,8 +5,10 @@ import type { SubAgentConfig, SubAgentHandle, Session } from './types.js';
 import type { SessionManager } from './manager.js';
 import type { Provider, ProviderConfig, Message } from '../providers/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
+import type { ToolExecutor } from '../agent/runner.js';
 import { runAgent } from '../agent/runner.js';
 import { buildSystemPrompt } from '../agent/system-prompt.js';
+import { createSandboxedRegistry, type SessionContext } from '../tools/sandbox.js';
 
 const MAX_DEPTH = 3;
 
@@ -24,7 +26,7 @@ export class SubAgentManager {
     config: SubAgentConfig,
     provider: Provider,
     providerConfig: ProviderConfig,
-    toolRegistry: ToolRegistry,
+    toolRegistry: ToolExecutor,
     workspace: string,
   ): Promise<SubAgentHandle> {
     if (config.depth >= MAX_DEPTH) {
@@ -54,10 +56,21 @@ export class SubAgentManager {
     };
     this.agents.set(sessionId, handle);
 
+    // Sub-agents ALWAYS get sandboxed at 'standard' tier (no admin escalation)
+    const subagentCtx: SessionContext = {
+      sessionId,
+      adapterId: 'subagent',
+      channelType: 'internal',
+      chatType: 'direct',
+      senderId: config.parentSessionId,
+      isOwner: true, // Treated as owner but adapter='subagent' → standard tier
+    };
+    const sandboxedTools = createSandboxedRegistry(toolRegistry, subagentCtx);
+
     // Build system prompt for sub-agent
     const systemPrompt = buildSystemPrompt({
       workspace,
-      tools: toolRegistry.list().map(t => t.name),
+      tools: sandboxedTools.list().map(t => t.name),
       extraContext: `You are a sub-agent spawned for a specific task. Complete it and provide a concise result.\n\nTask: ${config.task}`,
     });
 
@@ -65,7 +78,7 @@ export class SubAgentManager {
     session.messages.push({ role: 'user', content: config.task });
 
     // Run asynchronously — don't await
-    this.runSubAgent(session, handle, config, provider, providerConfig, toolRegistry);
+    this.runSubAgent(session, handle, config, provider, providerConfig, sandboxedTools);
 
     return handle;
   }
@@ -76,7 +89,7 @@ export class SubAgentManager {
     config: SubAgentConfig,
     provider: Provider,
     providerConfig: ProviderConfig,
-    toolRegistry: ToolRegistry,
+    toolRegistry: ToolExecutor,
   ): Promise<void> {
     try {
       const result = await runAgent(session.messages, {

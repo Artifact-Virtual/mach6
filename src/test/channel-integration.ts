@@ -4,7 +4,7 @@
  * 
  * Tests the FULL path: BusEnvelope → agent turn → LLM → tools → response → send
  * Uses a mock adapter so no real Discord/WhatsApp is needed.
- * Does NOT conflict with OpenClaw.
+ * Channel integration test suite.
  */
 
 import { loadConfig } from '../config/config.js';

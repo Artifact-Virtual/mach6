@@ -4,7 +4,7 @@
  * The persistent process. Manages channel lifecycle, agent sessions,
  * signal handling, graceful shutdown, and hot-reload.
  * 
- * This replaces OpenClaw's gateway.
+ * Mach6 AI Gateway — sovereign engine.
  */
 
 import * as fs from 'node:fs';
@@ -45,6 +45,7 @@ import { githubCopilotProvider } from '../providers/github-copilot.js';
 import { gladiusProvider } from '../providers/gladius.js';
 import type { BusEnvelope, ChannelPolicy, OutboundMessage } from '../channels/types.js';
 import { formatForChannel } from '../channels/formatter.js';
+import { createSandboxedRegistry, type SessionContext } from '../tools/sandbox.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -398,6 +399,20 @@ export class Mach6Gateway {
 
     this.activeTurns.set(sessionId, turn);
 
+    // Build sandbox context for this session
+    const ownerIds = this.gatewayConfig.ownerIds ?? [];
+    const isOwner = ownerIds.includes(envelope.source.senderId);
+    const chatType = (envelope.source.chatId.includes('@g.') || envelope.metadata.guildId) ? 'group' as const : 'direct' as const;
+    const sandboxCtx: SessionContext = {
+      sessionId,
+      adapterId: envelope.source.adapterId,
+      channelType: envelope.source.channelType,
+      chatType,
+      senderId: envelope.source.senderId,
+      isOwner,
+    };
+    const sandboxedTools = createSandboxedRegistry(this.toolRegistry, sandboxCtx);
+
     // Record user activity for heartbeat scheduling
     if (envelope.source.adapterId !== 'heartbeat') {
       this.heartbeat.recordUserActivity();
@@ -469,7 +484,7 @@ export class Mach6Gateway {
       const result = await runAgent(session.messages, {
         provider: this.provider,
         providerConfig: provConfig,
-        toolRegistry: this.toolRegistry,
+        toolRegistry: sandboxedTools,
         sessionId,
         maxIterations: this.config.maxIterations ?? 50,
         abortSignal: controller.signal,

@@ -19,7 +19,7 @@ let cachedToken: CachedToken | null = null;
 
 function tokenCachePath(): string {
   const home = process.env.HOME ?? '/tmp';
-  return path.join(home, '.openclaw', 'credentials', 'github-copilot.token.json');
+  return path.join(home, '.mach6', 'credentials', 'github-copilot.token.json');
 }
 
 function loadCachedToken(): CachedToken | null {
