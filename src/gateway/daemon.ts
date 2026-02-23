@@ -46,6 +46,7 @@ import { gladiusProvider } from '../providers/gladius.js';
 import type { BusEnvelope, ChannelPolicy, OutboundMessage } from '../channels/types.js';
 import { formatForChannel } from '../channels/formatter.js';
 import { createSandboxedRegistry, type SessionContext } from '../tools/sandbox.js';
+import { HttpApiServer, type ChatRequest, type ChatResponse } from '../web/http-api.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -117,6 +118,7 @@ export class Mach6Gateway {
   private heartbeat: HeartbeatScheduler;
   private subAgentManager: SubAgentManager;
   private startTime = Date.now();
+  private httpApi: HttpApiServer | null = null;
 
   constructor(gatewayConfig: GatewayConfig) {
     this.gatewayConfig = gatewayConfig;
@@ -224,6 +226,9 @@ export class Mach6Gateway {
     // Start channels
     await this.startChannels();
 
+    // Start HTTP API server
+    await this.startHttpApi();
+
     const elapsed = Date.now() - this.startTime;
     console.log(`  ✅ Gateway ready (${elapsed}ms)\n`);
   }
@@ -315,6 +320,140 @@ export class Mach6Gateway {
       console.log('  ✅ WhatsApp connected');
       presenceManager.registerAdapter('whatsapp-main', (chatId) => adapter.typing(chatId));
     }
+  }
+
+  // ── HTTP API ───────────────────────────────────────────────────────────
+
+  private async startHttpApi(): Promise<void> {
+    const port = (this.gatewayConfig as any).apiPort ?? 3006;
+    const apiKey = process.env.MACH6_API_KEY || process.env.API_KEY || '';
+
+    if (!apiKey) {
+      console.log('  ⚠️  No MACH6_API_KEY set — HTTP API disabled (set MACH6_API_KEY in .env)');
+      return;
+    }
+
+    this.httpApi = new HttpApiServer({
+      port,
+      apiKey,
+      allowedOrigins: ['*'], // GLADIUS page is on Vercel, allow all for now
+      onChat: async (request: ChatRequest): Promise<ChatResponse> => {
+        return this.handleHttpChat(request);
+      },
+      onRelay: async (target: string, text: string) => {
+        // Relay to WhatsApp
+        try {
+          const result = await this.channelRegistry.sendToChannel('whatsapp', target, {
+            content: text,
+          });
+          return { success: result.success, error: result.error };
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+      onHealth: () => this.status(),
+    });
+
+    await this.httpApi.start();
+  }
+
+  /**
+   * Handle an HTTP API chat request by running it through the full agent pipeline.
+   * Creates a synthetic BusEnvelope and processes it like any other channel message.
+   */
+  private handleHttpChat(request: ChatRequest): Promise<ChatResponse> {
+    return new Promise(async (resolve, reject) => {
+      const sessionId = request.sessionId ?? `http-${request.source ?? 'web'}-${request.senderId ?? 'anon'}`;
+      const controller = new AbortController();
+
+      try {
+        // Load or create session
+        let session = this.sessionManager.load(sessionId) ?? this.sessionManager.create(sessionId, {
+          provider: this.providerName,
+          model: this.model,
+        });
+
+        // Build system prompt
+        const turnPrompt = buildSystemPrompt({
+          workspace: this.config.workspace,
+          tools: this.toolRegistry.list().map(t => t.name),
+          channel: 'http',
+          chatType: 'direct',
+          senderId: request.senderId ?? 'http-user',
+        });
+
+        if (session.messages.length > 0 && session.messages[0].role === 'system') {
+          session.messages[0].content = turnPrompt;
+        } else {
+          session.messages.unshift({ role: 'system', content: turnPrompt });
+        }
+
+        // Build user message content
+        const userContent = request.senderName
+          ? `[${request.senderName}] ${request.text}`
+          : request.text;
+
+        session.messages.push({ role: 'user', content: userContent });
+
+        // Sandbox context — HTTP API users get 'standard' tier (not admin)
+        const ownerIds = this.gatewayConfig.ownerIds ?? [];
+        const isOwner = request.senderId ? ownerIds.includes(request.senderId) : false;
+        const sandboxCtx: SessionContext = {
+          sessionId,
+          adapterId: 'http-api',
+          channelType: 'http',
+          chatType: 'direct',
+          senderId: request.senderId ?? 'http-user',
+          isOwner,
+        };
+        const sandboxedTools = createSandboxedRegistry(this.toolRegistry, sandboxCtx);
+
+        // Provider config
+        const providerCfg = (this.config.providers as Record<string, any>)[this.providerName] ?? {};
+        const provConfig = {
+          model: this.model,
+          maxTokens: this.config.maxTokens,
+          temperature: this.config.temperature,
+          systemPrompt: this.systemPrompt,
+          ...providerCfg,
+        };
+
+        // Run agent
+        console.log(`[http-api] Agent turn for ${sessionId}`);
+        const startMs = Date.now();
+
+        const result = await runAgent(session.messages, {
+          provider: this.provider,
+          providerConfig: provConfig,
+          toolRegistry: sandboxedTools,
+          sessionId,
+          maxIterations: this.config.maxIterations ?? 50,
+          abortSignal: controller.signal,
+          onEvent: (ev) => {
+            if (ev.type === 'usage') {
+              this.sessionManager.trackUsage(session, ev.usage.inputTokens, ev.usage.outputTokens);
+            }
+          },
+          onToolStart: (name) => console.log(`  ⚡ [http] ${name}`),
+          onToolEnd: (name) => console.log(`  ✓ [http] ${name}`),
+        });
+
+        // Save session
+        session.messages = result.messages;
+        if (result.text) {
+          session.messages.push({ role: 'assistant', content: result.text });
+        }
+        this.sessionManager.save(session);
+
+        resolve({
+          text: result.text ?? '',
+          sessionId,
+          durationMs: Date.now() - startMs,
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
   }
 
   // ── Message Loop ───────────────────────────────────────────────────────
@@ -634,6 +773,9 @@ export class Mach6Gateway {
 
       // Disconnect all channels
       await this.channelRegistry.destroy();
+
+      // Stop HTTP API
+      if (this.httpApi) await this.httpApi.stop();
 
       presenceManager.stopAll();
       this.heartbeat.stop();

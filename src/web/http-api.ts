@@ -1,0 +1,253 @@
+/**
+ * Mach6 — HTTP API Channel Adapter
+ * 
+ * Exposes a REST API for external clients (like the GLADIUS page) to
+ * send messages to AVA and receive responses. Routes through the same
+ * agent pipeline as Discord/WhatsApp.
+ * 
+ * Endpoints:
+ *   POST /api/v1/chat   — send a message, get a response (SSE stream or JSON)
+ *   GET  /api/v1/health  — gateway health
+ *   POST /api/v1/relay   — relay to WhatsApp (Option C bridge)
+ * 
+ * Auth: Bearer token in Authorization header (API_KEY from env/config)
+ */
+
+import * as http from 'node:http';
+import * as crypto from 'node:crypto';
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+export interface HttpApiConfig {
+  port: number;
+  apiKey: string;
+  /** CORS origins to allow (default: ['*']) */
+  allowedOrigins?: string[];
+  /** Callback to handle a chat message through the agent pipeline */
+  onChat: (message: ChatRequest) => Promise<ChatResponse>;
+  /** Callback to relay a message to WhatsApp */
+  onRelay?: (target: string, text: string) => Promise<{ success: boolean; error?: string }>;
+  /** Get gateway status */
+  onHealth?: () => Record<string, unknown>;
+}
+
+export interface ChatRequest {
+  /** The text message from the user */
+  text: string;
+  /** Session identifier (for conversation continuity) */
+  sessionId?: string;
+  /** Sender identifier */
+  senderId?: string;
+  /** Sender display name */
+  senderName?: string;
+  /** Source identifier (e.g., "gladius-page") */
+  source?: string;
+}
+
+export interface ChatResponse {
+  text: string;
+  sessionId: string;
+  /** How long the agent took */
+  durationMs?: number;
+}
+
+// ── Server ─────────────────────────────────────────────────────────────────
+
+export class HttpApiServer {
+  private server: http.Server | null = null;
+  private config: HttpApiConfig;
+
+  constructor(config: HttpApiConfig) {
+    this.config = config;
+  }
+
+  async start(): Promise<void> {
+    return new Promise((resolve) => {
+      this.server = http.createServer((req, res) => {
+        this.handleRequest(req, res).catch(err => {
+          console.error('[http-api] Unhandled error:', err);
+          if (!res.headersSent) {
+            this.json(res, { error: 'Internal server error' }, 500);
+          }
+        });
+      });
+
+      this.server.listen(this.config.port, '0.0.0.0', () => {
+        console.log(`  ✅ HTTP API → http://0.0.0.0:${this.config.port}/api/v1/`);
+        resolve();
+      });
+    });
+  }
+
+  async stop(): Promise<void> {
+    if (this.server) {
+      return new Promise((resolve) => {
+        this.server!.close(() => resolve());
+      });
+    }
+  }
+
+  // ── Request Handler ──────────────────────────────────────────────────
+
+  private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const method = req.method ?? 'GET';
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const pathname = url.pathname;
+
+    // CORS
+    const origin = req.headers.origin ?? '*';
+    const allowedOrigins = this.config.allowedOrigins ?? ['*'];
+    const allowOrigin = allowedOrigins.includes('*') || allowedOrigins.includes(origin)
+      ? origin
+      : allowedOrigins[0];
+
+    res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Max-Age', '86400');
+
+    if (method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // Health (no auth required)
+    if (method === 'GET' && pathname === '/api/v1/health') {
+      const health = this.config.onHealth?.() ?? { status: 'ok' };
+      return this.json(res, health);
+    }
+
+    // Auth check for all other endpoints
+    if (!this.authenticate(req)) {
+      return this.json(res, { error: 'Unauthorized' }, 401);
+    }
+
+    // POST /api/v1/chat
+    if (method === 'POST' && pathname === '/api/v1/chat') {
+      return this.handleChat(req, res);
+    }
+
+    // POST /api/v1/relay
+    if (method === 'POST' && pathname === '/api/v1/relay') {
+      return this.handleRelay(req, res);
+    }
+
+    // 404
+    this.json(res, { error: 'Not found' }, 404);
+  }
+
+  // ── Chat Endpoint ────────────────────────────────────────────────────
+
+  private async handleChat(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const body = await this.readBody(req);
+    let parsed: ChatRequest;
+
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return this.json(res, { error: 'Invalid JSON' }, 400);
+    }
+
+    if (!parsed.text || typeof parsed.text !== 'string' || !parsed.text.trim()) {
+      return this.json(res, { error: 'text field is required' }, 400);
+    }
+
+    // Default session ID based on source
+    if (!parsed.sessionId) {
+      parsed.sessionId = `http-${parsed.source ?? 'web'}-${parsed.senderId ?? 'anon'}`;
+    }
+
+    console.log(`[http-api] Chat: "${parsed.text.slice(0, 80)}..." (session=${parsed.sessionId})`);
+
+    try {
+      const startMs = Date.now();
+      const response = await this.config.onChat(parsed);
+      response.durationMs = Date.now() - startMs;
+
+      this.json(res, {
+        text: response.text,
+        sessionId: response.sessionId,
+        durationMs: response.durationMs,
+      });
+    } catch (err) {
+      console.error('[http-api] Chat error:', err);
+      this.json(res, {
+        error: err instanceof Error ? err.message : String(err),
+      }, 500);
+    }
+  }
+
+  // ── Relay Endpoint (WhatsApp bridge) ─────────────────────────────────
+
+  private async handleRelay(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (!this.config.onRelay) {
+      return this.json(res, { error: 'Relay not configured' }, 501);
+    }
+
+    const body = await this.readBody(req);
+    let parsed: { target?: string; text?: string };
+
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return this.json(res, { error: 'Invalid JSON' }, 400);
+    }
+
+    if (!parsed.text || !parsed.target) {
+      return this.json(res, { error: 'target and text fields are required' }, 400);
+    }
+
+    console.log(`[http-api] Relay to ${parsed.target}: "${parsed.text.slice(0, 80)}..."`);
+
+    try {
+      const result = await this.config.onRelay(parsed.target, parsed.text);
+      this.json(res, result);
+    } catch (err) {
+      console.error('[http-api] Relay error:', err);
+      this.json(res, { error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────
+
+  private authenticate(req: http.IncomingMessage): boolean {
+    const auth = req.headers.authorization;
+    if (!auth) return false;
+
+    // Bearer token
+    const match = auth.match(/^Bearer\s+(.+)$/i);
+    if (!match) return false;
+
+    // Constant-time comparison
+    const provided = Buffer.from(match[1]);
+    const expected = Buffer.from(this.config.apiKey);
+    if (provided.length !== expected.length) return false;
+    return crypto.timingSafeEqual(provided, expected);
+  }
+
+  private json(res: http.ServerResponse, data: unknown, status = 200): void {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(data));
+  }
+
+  private readBody(req: http.IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      const MAX_SIZE = 1024 * 1024; // 1MB
+
+      req.on('data', (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > MAX_SIZE) {
+          req.destroy();
+          reject(new Error('Body too large'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on('end', () => resolve(Buffer.concat(chunks).toString()));
+      req.on('error', reject);
+    });
+  }
+}
