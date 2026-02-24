@@ -239,29 +239,33 @@ export class Mach6Gateway {
     const channels = this.gatewayConfig.channels;
     if (!channels) return;
 
-    // Discord
+    // Discord (non-fatal — if Discord fails, other adapters still start)
     if (channels.discord?.enabled) {
-      console.log('  Starting Discord adapter...');
-      const adapter = new DiscordAdapter('discord-main');
-      const policy: ChannelPolicy = {
-        dmPolicy: 'open',
-        groupPolicy: 'mention-only',
-        ownerIds: this.gatewayConfig.ownerIds ?? [],
-        requireMention: true,
-        selfId: channels.discord.botId, // Required for mention detection
-        ...channels.discord.policy,
-      };
+      try {
+        console.log('  Starting Discord adapter...');
+        const adapter = new DiscordAdapter('discord-main');
+        const policy: ChannelPolicy = {
+          dmPolicy: 'open',
+          groupPolicy: 'mention-only',
+          ownerIds: this.gatewayConfig.ownerIds ?? [],
+          requireMention: true,
+          selfId: channels.discord.botId, // Required for mention detection
+          ...channels.discord.policy,
+        };
 
-      await this.channelRegistry.register(
-        adapter,
-        { token: channels.discord.token, botId: channels.discord.botId },
-        policy,
-      );
-      console.log('  ✅ Discord connected');
-      presenceManager.registerAdapter('discord-main', (chatId) => adapter.typing(chatId));
-      // Register Discord client for rich activity presence
-      const discordClient = adapter.getClient();
-      if (discordClient) presenceManager.registerDiscordClient('discord-main', discordClient);
+        await this.channelRegistry.register(
+          adapter,
+          { token: channels.discord.token, botId: channels.discord.botId },
+          policy,
+        );
+        console.log('  ✅ Discord connected');
+        presenceManager.registerAdapter('discord-main', (chatId) => adapter.typing(chatId));
+        // Register Discord client for rich activity presence
+        const discordClient = adapter.getClient();
+        if (discordClient) presenceManager.registerDiscordClient('discord-main', discordClient);
+      } catch (err) {
+        console.error(`  ⚠️  Discord (main) failed to connect — skipping:`, (err as Error).message);
+      }
     }
 
     // Extra Discord bots (e.g., AVA_direct for the AVA community server)
@@ -269,56 +273,64 @@ export class Mach6Gateway {
       for (const extra of channels.discordExtra) {
         if (!extra.enabled) continue;
         const adapterId = extra.id ?? `discord-extra-${channels.discordExtra.indexOf(extra)}`;
-        console.log(`  Starting Discord adapter: ${adapterId}...`);
-        const extraAdapter = new DiscordAdapter(adapterId);
-        const extraPolicy: ChannelPolicy = {
-          dmPolicy: 'open',
-          groupPolicy: 'open',
-          ownerIds: this.gatewayConfig.ownerIds ?? [],
-          requireMention: false,
-          selfId: extra.botId,
-          ...extra.policy,
-        };
+        try {
+          console.log(`  Starting Discord adapter: ${adapterId}...`);
+          const extraAdapter = new DiscordAdapter(adapterId);
+          const extraPolicy: ChannelPolicy = {
+            dmPolicy: 'open',
+            groupPolicy: 'open',
+            ownerIds: this.gatewayConfig.ownerIds ?? [],
+            requireMention: false,
+            selfId: extra.botId,
+            ...extra.policy,
+          };
 
-        await this.channelRegistry.register(
-          extraAdapter,
-          { token: extra.token, botId: extra.botId },
-          extraPolicy,
-        );
-        console.log(`  ✅ Discord (${adapterId}) connected`);
-        presenceManager.registerAdapter(adapterId, (chatId) => extraAdapter.typing(chatId));
-        // Register extra Discord client for rich activity presence
-        const extraClient = extraAdapter.getClient();
-        if (extraClient) presenceManager.registerDiscordClient(adapterId, extraClient);
+          await this.channelRegistry.register(
+            extraAdapter,
+            { token: extra.token, botId: extra.botId },
+            extraPolicy,
+          );
+          console.log(`  ✅ Discord (${adapterId}) connected`);
+          presenceManager.registerAdapter(adapterId, (chatId) => extraAdapter.typing(chatId));
+          // Register extra Discord client for rich activity presence
+          const extraClient = extraAdapter.getClient();
+          if (extraClient) presenceManager.registerDiscordClient(adapterId, extraClient);
+        } catch (err) {
+          console.error(`  ⚠️  Discord (${adapterId}) failed to connect — skipping:`, (err as Error).message);
+        }
       }
     }
 
-    // WhatsApp
+    // WhatsApp (non-fatal — log and continue if it fails)
     if (channels.whatsapp?.enabled) {
-      console.log('  Starting WhatsApp adapter...');
-      const adapter = new WhatsAppAdapter('whatsapp-main');
-      const policy: ChannelPolicy = {
-        dmPolicy: 'allowlist',
-        groupPolicy: 'mention-only',
-        ownerIds: this.gatewayConfig.ownerIds ?? [],
-        allowedSenders: this.gatewayConfig.ownerIds ?? [],
-        ...channels.whatsapp.policy,
-      };
+      try {
+        console.log('  Starting WhatsApp adapter...');
+        const adapter = new WhatsAppAdapter('whatsapp-main');
+        const policy: ChannelPolicy = {
+          dmPolicy: 'allowlist',
+          groupPolicy: 'mention-only',
+          ownerIds: this.gatewayConfig.ownerIds ?? [],
+          allowedSenders: this.gatewayConfig.ownerIds ?? [],
+          ...channels.whatsapp.policy,
+        };
 
-      await this.channelRegistry.register(
-        adapter,
-        {
-          authDir: channels.whatsapp.authDir,
-          phoneNumber: channels.whatsapp.phoneNumber,
-          autoRead: channels.whatsapp.autoRead ?? true,
-          onQR: (qr: string) => {
-            console.log(`\n📱 WhatsApp QR Code — scan to link:\n${qr}\n`);
+        await this.channelRegistry.register(
+          adapter,
+          {
+            authDir: channels.whatsapp.authDir,
+            phoneNumber: channels.whatsapp.phoneNumber,
+            autoRead: channels.whatsapp.autoRead ?? true,
+            onQR: (qr: string) => {
+              console.log(`\n📱 WhatsApp QR Code — scan to link:\n${qr}\n`);
+            },
           },
-        },
-        policy,
-      );
-      console.log('  ✅ WhatsApp connected');
-      presenceManager.registerAdapter('whatsapp-main', (chatId) => adapter.typing(chatId));
+          policy,
+        );
+        console.log('  ✅ WhatsApp connected');
+        presenceManager.registerAdapter('whatsapp-main', (chatId) => adapter.typing(chatId));
+      } catch (err) {
+        console.error(`  ⚠️  WhatsApp failed to connect — skipping:`, (err as Error).message);
+      }
     }
   }
 
