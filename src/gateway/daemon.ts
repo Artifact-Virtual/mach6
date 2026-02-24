@@ -47,6 +47,7 @@ import type { BusEnvelope, ChannelPolicy, OutboundMessage } from '../channels/ty
 import { formatForChannel } from '../channels/formatter.js';
 import { createSandboxedRegistry, type SessionContext } from '../tools/sandbox.js';
 import { HttpApiServer, type ChatRequest, type ChatResponse } from '../web/http-api.js';
+import { McpBridge } from '../tools/mcp-bridge.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -119,6 +120,7 @@ export class Mach6Gateway {
   private subAgentManager: SubAgentManager;
   private startTime = Date.now();
   private httpApi: HttpApiServer | null = null;
+  private mcpBridges: McpBridge[] = [];
 
   constructor(gatewayConfig: GatewayConfig) {
     this.gatewayConfig = gatewayConfig;
@@ -213,6 +215,9 @@ export class Mach6Gateway {
     console.log(`  Tools: ${this.toolRegistry.list().length}`);
     console.log(`  Workspace: ${this.config.workspace}`);
 
+    // Connect MCP servers (external tool sources)
+    await this.connectMcpServers();
+
     // Register signal handlers
     this.setupSignals();
 
@@ -231,6 +236,61 @@ export class Mach6Gateway {
 
     const elapsed = Date.now() - this.startTime;
     console.log(`  ✅ Gateway ready (${elapsed}ms)\n`);
+  }
+
+  // ── MCP Servers ────────────────────────────────────────────────────────
+
+  private async connectMcpServers(): Promise<void> {
+    const mcpConfig = (this.gatewayConfig as any).mcpServers;
+    if (!mcpConfig || typeof mcpConfig !== 'object') {
+      console.log(`  MCP: No mcpServers configured`);
+      return;
+    }
+
+    const entries = Object.entries(mcpConfig) as [string, { command: string[]; args?: string[]; cwd?: string; env?: Record<string, string>; enabled?: boolean }][];
+    const enabled = entries.filter(([_, cfg]) => cfg.enabled !== false);
+
+    if (enabled.length === 0) {
+      console.log(`  MCP: No enabled MCP servers`);
+      return;
+    }
+
+    console.log(`  MCP: Connecting to ${enabled.length} server(s)...`);
+
+    for (const [name, cfg] of enabled) {
+      try {
+        const command = [...(cfg.command ?? []), ...(cfg.args ?? [])];
+        const bridge = new McpBridge({
+          command,
+          cwd: cfg.cwd ?? this.config.workspace,
+          env: cfg.env,
+          timeout: 30000,
+        });
+
+        await bridge.connect();
+
+        // Register all discovered tools into Mach6's registry
+        const tools = bridge.getTools();
+        for (const tool of tools) {
+          this.toolRegistry.register(tool);
+        }
+        this.mcpBridges.push(bridge);
+
+        console.log(`  MCP: ✅ ${name} — ${tools.length} tools registered`);
+      } catch (err) {
+        console.error(`  MCP: ❌ ${name} — ${err instanceof Error ? err.message : err}`);
+        // Non-fatal — other servers + builtins still work
+      }
+    }
+
+    // Rebuild system prompt with new tools
+    if (this.mcpBridges.length > 0) {
+      this.systemPrompt = buildSystemPrompt({
+        workspace: this.config.workspace,
+        tools: this.toolRegistry.list().map(t => t.name),
+      });
+      console.log(`  MCP: System prompt rebuilt (${this.toolRegistry.list().length} total tools)`);
+    }
   }
 
   // ── Channel Setup ──────────────────────────────────────────────────────
@@ -788,6 +848,11 @@ export class Mach6Gateway {
 
       // Stop HTTP API
       if (this.httpApi) await this.httpApi.stop();
+
+      // Disconnect MCP bridges
+      for (const bridge of this.mcpBridges) {
+        try { bridge.disconnect(); } catch { /* ignore */ }
+      }
 
       presenceManager.stopAll();
       this.heartbeat.stop();
