@@ -251,6 +251,8 @@ export interface ChannelPolicy {
   requireMention?: boolean;
   /** Bot's own ID on this platform (for mention detection) */
   selfId?: string;
+  /** Sibling bot IDs — if a message @mentions a sibling but NOT us, yield */
+  siblingBotIds?: string[];
 }
 
 export interface SessionRoute {

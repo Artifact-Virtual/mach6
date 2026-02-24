@@ -154,6 +154,15 @@ export class InboundRouter {
   }
 
   private checkPolicy(policy: ChannelPolicy, source: ChannelSource): boolean {
+    // Sibling bot yield: if message explicitly @mentions a sibling bot but NOT us, yield.
+    // This applies even for owners — ensures @Plug → only Plug, @AVA → only AVA.
+    // No mention at all → both respond (owner bypass or normal policy applies).
+    if (policy.siblingBotIds?.length && policy.selfId && source.mentions?.length) {
+      const mentionsMe = source.mentions.includes(policy.selfId);
+      const mentionsSibling = source.mentions.some(id => policy.siblingBotIds!.includes(id));
+      if (mentionsSibling && !mentionsMe) return false;
+    }
+
     const isOwner = this.isOwner(policy, source.senderId);
     if (isOwner) return true; // Owners bypass all policy
 

@@ -300,16 +300,25 @@ export class Mach6Gateway {
     if (!channels) return;
 
     // Discord (non-fatal — if Discord fails, other adapters still start)
+    // Collect all Discord bot IDs for sibling yield logic
+    const allDiscordBotIds: string[] = [];
+    if (channels.discord?.botId) allDiscordBotIds.push(channels.discord.botId);
+    for (const extra of channels.discordExtra ?? []) {
+      if (extra.enabled && extra.botId) allDiscordBotIds.push(extra.botId);
+    }
+
     if (channels.discord?.enabled) {
       try {
         console.log('  Starting Discord adapter...');
         const adapter = new DiscordAdapter('discord-main');
+        const siblingBotIds = allDiscordBotIds.filter(id => id !== channels.discord!.botId);
         const policy: ChannelPolicy = {
           dmPolicy: 'open',
           groupPolicy: 'mention-only',
           ownerIds: this.gatewayConfig.ownerIds ?? [],
           requireMention: true,
           selfId: channels.discord.botId, // Required for mention detection
+          siblingBotIds,
           ...channels.discord.policy,
         };
 
@@ -336,12 +345,14 @@ export class Mach6Gateway {
         try {
           console.log(`  Starting Discord adapter: ${adapterId}...`);
           const extraAdapter = new DiscordAdapter(adapterId);
+          const extraSiblingBotIds = allDiscordBotIds.filter(id => id !== extra.botId);
           const extraPolicy: ChannelPolicy = {
             dmPolicy: 'open',
             groupPolicy: 'open',
             ownerIds: this.gatewayConfig.ownerIds ?? [],
             requireMention: false,
             selfId: extra.botId,
+            siblingBotIds: extraSiblingBotIds,
             ...extra.policy,
           };
 
