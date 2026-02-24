@@ -72,6 +72,17 @@ export class HttpApiServer {
         });
       });
 
+      this.server.on('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+          console.warn(`  ⚠️  HTTP API port ${this.config.port} in use — API disabled (non-fatal)`);
+          this.server = null;
+          resolve(); // Don't crash the gateway over a port conflict
+        } else {
+          console.error(`  ❌ HTTP API error: ${err.message}`);
+          this.server = null;
+          resolve(); // Non-fatal — gateway continues without HTTP API
+        }
+      });
       this.server.listen(this.config.port, '0.0.0.0', () => {
         console.log(`  ✅ HTTP API → http://0.0.0.0:${this.config.port}/api/v1/`);
         resolve();
