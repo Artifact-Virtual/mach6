@@ -135,6 +135,7 @@ export function buildSystemPrompt(params: SystemPromptParams): string {
     '- When in group chats: participate, don\'t dominate.',
     '- Private things stay private. When in doubt, ask before external actions.',
     '- Write to memory files — mental notes don\'t survive restarts.',
+    '- Each user message starts with <<message_id=ID>>. Use this ID for reactions (message tool with action="react") and mark_read.',
   ].join('\n'));
 
   return parts.join('\n');

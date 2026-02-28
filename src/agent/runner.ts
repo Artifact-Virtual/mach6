@@ -68,6 +68,11 @@ export async function runAgent(
       const iterCheck = config.policyEngine.checkIteration(config.sessionId, iterations);
       if (iterCheck.warning) {
         console.warn(`⚠️  ${iterCheck.warning}`);
+        // Inject warning into context so the LLM can react and wrap up gracefully
+        currentMessages.push({
+          role: 'user',
+          content: `⚠️ SYSTEM WARNING: ${iterCheck.warning}. Wrap up NOW — provide your best result immediately. Do not start new work.`,
+        });
       }
       if (!iterCheck.ok) {
         return {

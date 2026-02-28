@@ -97,8 +97,13 @@ export class InboundRouter {
   private bus: Mach6Bus;
   private config: RouterConfig;
   private dedup = new DeduplicationCache();
-  private routes = new Map<string, SessionRoute>(); // "channelType:chatId" → route
+  private routes = new Map<string, SessionRoute>(); // "adapterId:chatId" → route
   private sessionCounter = 0;
+  /** Sibling conversation turn tracking — prevents echo loops between sibling bots.
+   *  Key: "adapterId:chatId", Value: timestamp of last response we sent to a sibling in that channel. */
+  private siblingLastResponse = new Map<string, number>();
+  /** Minimum milliseconds between processing sibling messages in the same channel. */
+  private static readonly SIBLING_COOLDOWN_MS = 10_000; // 10 seconds
 
   constructor(bus: Mach6Bus, config: RouterConfig) {
     this.bus = bus;
@@ -118,7 +123,16 @@ export class InboundRouter {
     const policy = this.getPolicy(source.channelType);
     if (!this.checkPolicy(policy, source)) return false;
 
-    // 3. Resolve session
+    // 2b. Sibling cooldown — prevent echo loops between sibling bots
+    if (policy.siblingBotIds?.includes(source.senderId)) {
+      const cooldownKey = `${source.adapterId}:${source.chatId}`;
+      const lastResponse = this.siblingLastResponse.get(cooldownKey);
+      if (lastResponse && (Date.now() - lastResponse) < InboundRouter.SIBLING_COOLDOWN_MS) {
+        return false; // Too soon — let the conversation breathe
+      }
+    }
+
+    // 3. Resolve session (keyed per adapter to avoid session collision between siblings)
     const sessionId = this.resolveSession(source);
 
     // 4. Determine priority
@@ -163,6 +177,15 @@ export class InboundRouter {
       if (mentionsSibling && !mentionsMe) return false;
     }
 
+    // Ignored channels: completely blocked — no processing, no response, no session.
+    if (policy.ignoredChannels?.includes(source.chatId)) return false;
+
+    // Strict-mention channels: even owners must @mention to trigger response.
+    // These are channels where the bot should only observe unless explicitly called.
+    if (policy.strictMentionChannels?.includes(source.chatId)) {
+      return this.isMentioned(policy, source);
+    }
+
     const isOwner = this.isOwner(policy, source.senderId);
     if (isOwner) return true; // Owners bypass all policy
 
@@ -205,7 +228,8 @@ export class InboundRouter {
   // ── Session Resolution ─────────────────────────────────────────────────
 
   private resolveSession(source: ChannelSource): string {
-    const routeKey = `${source.channelType}:${source.chatId}`;
+    // Key includes adapterId so sibling bots get separate sessions for the same channel
+    const routeKey = `${source.adapterId}:${source.chatId}`;
     const existing = this.routes.get(routeKey);
 
     if (existing) {
@@ -214,7 +238,7 @@ export class InboundRouter {
     }
 
     // Create new session route
-    const sessionId = `${source.channelType}-${source.chatId}-${++this.sessionCounter}`;
+    const sessionId = `${source.adapterId}-${source.chatId}-${++this.sessionCounter}`;
     this.routes.set(routeKey, {
       channelType: source.channelType,
       chatId: source.chatId,
@@ -275,9 +299,9 @@ export class InboundRouter {
     return Array.from(this.routes.values());
   }
 
-  /** Get session ID for a channel + chat */
-  getSessionId(channelType: string, chatId: string): string | undefined {
-    return this.routes.get(`${channelType}:${chatId}`)?.sessionId;
+  /** Get session ID for an adapter + chat */
+  getSessionId(adapterId: string, chatId: string): string | undefined {
+    return this.routes.get(`${adapterId}:${chatId}`)?.sessionId;
   }
 
   /** Manually set a route (for restoring state) */
@@ -301,5 +325,20 @@ export class InboundRouter {
   /** Update policy for a channel */
   setPolicy(channelType: string, policy: ChannelPolicy): void {
     this.config.policies.set(channelType, policy);
+  }
+
+  // ── Sibling Coordination ───────────────────────────────────────────────
+
+  /** Record that we just responded to a sibling bot in this channel.
+   *  The cooldown prevents our sibling from immediately processing our response,
+   *  giving turn-taking a natural rhythm instead of an infinite loop. */
+  recordSiblingResponse(adapterId: string, chatId: string): void {
+    this.siblingLastResponse.set(`${adapterId}:${chatId}`, Date.now());
+  }
+
+  /** Check if a sender is a known sibling bot */
+  isSiblingBot(channelType: string, senderId: string): boolean {
+    const policy = this.getPolicy(channelType);
+    return policy.siblingBotIds?.includes(senderId) ?? false;
   }
 }

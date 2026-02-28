@@ -67,6 +67,8 @@ export interface DiscordAdapterConfig extends ChannelConfig {
   token: string;
   /** Bot's application/user ID (for mention detection) */
   botId?: string;
+  /** Sibling bot IDs — these bots are NOT filtered out (enables multi-bot coordination) */
+  siblingBotIds?: string[];
 }
 
 // ─── Adapter ───────────────────────────────────────────────────────────────
@@ -79,6 +81,7 @@ export class DiscordAdapter extends BaseAdapter {
   private client?: Client;
   private token = '';
   private botId = '';
+  private siblingBotIds: Set<string> = new Set();
 
   constructor(id = 'discord-main') {
     super();
@@ -90,6 +93,11 @@ export class DiscordAdapter extends BaseAdapter {
   protected async platformConnect(config: ChannelConfig): Promise<void> {
     const discordConfig = config as DiscordAdapterConfig;
     this.token = discordConfig.token;
+
+    // Sibling bots are peers — never filter them out
+    if (discordConfig.siblingBotIds?.length) {
+      this.siblingBotIds = new Set(discordConfig.siblingBotIds);
+    }
 
     this.client = new Client({
       intents: [
@@ -163,8 +171,8 @@ export class DiscordAdapter extends BaseAdapter {
   private handleMessage(msg: DiscordMessage): void {
     // Ignore own messages
     if (msg.author.id === this.botId) return;
-    // Ignore other bots
-    if (msg.author.bot) return;
+    // Ignore other bots — but never ignore siblings
+    if (msg.author.bot && !this.siblingBotIds.has(msg.author.id)) return;
 
     const source = this.buildSource(msg);
     const payload = this.buildPayload(msg);

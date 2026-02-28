@@ -324,7 +324,7 @@ export class Mach6Gateway {
 
         await this.channelRegistry.register(
           adapter,
-          { token: channels.discord.token, botId: channels.discord.botId },
+          { token: channels.discord.token, botId: channels.discord.botId, siblingBotIds: channels.discord.siblingBotIds },
           policy,
         );
         console.log(ok(`Discord ${palette.green}connected${palette.reset}`));
@@ -774,6 +774,13 @@ export class Mach6Gateway {
 
   private buildUserContent(envelope: BusEnvelope): string {
     const parts: string[] = [];
+
+    // Inject message metadata so the LLM can reference message IDs
+    // (needed for react, mark_read, delete_message tools)
+    const msgId = envelope.metadata.platformMessageId;
+    if (msgId) {
+      parts.push(`<<message_id=${msgId}>>`);
+    }
 
     // Sender context
     if (envelope.source.senderName) {
