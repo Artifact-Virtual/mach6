@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 // Mach6 — CLI Entry Point (Phase 2: Enhanced)
 
+// Handle `mach6 init` before loading heavy imports
+const subcommand = process.argv[2];
+if (subcommand === 'init') {
+  const { runWizard } = await import('./cli/wizard.js');
+  await runWizard();
+  process.exit(0);
+}
+
 import * as readline from 'node:readline';
 import { loadConfig } from './config/config.js';
 import { anthropicProvider } from './providers/anthropic.js';
