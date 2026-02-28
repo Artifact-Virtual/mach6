@@ -8,8 +8,6 @@
 
 ## 1. Philosophy
 
-OpenClaw treats channels as plugins that bolt onto a request-response agent loop. Messages arrive, get queued, processed sequentially, response emitted. This works. It's also why Ali's messages get `[Queued messages while agent was busy]`.
-
 Mach6 treats channels as **real-time bidirectional streams** feeding into an **interruptible agent core**. The channel layer isn't an adapter — it's the nervous system.
 
 ### Design Principles
