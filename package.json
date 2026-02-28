@@ -36,13 +36,13 @@
   ],
   "author": "Artifact Virtual <hello@artifactvirtual.com> (https://artifactvirtual.com)",
   "license": "MIT",
-  "homepage": "https://github.com/amuzetnoM/mach6#readme",
+  "homepage": "https://github.com/Artifact-Virtual/mach6#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/amuzetnoM/mach6.git"
+    "url": "git+https://github.com/Artifact-Virtual/mach6.git"
   },
   "bugs": {
-    "url": "https://github.com/amuzetnoM/mach6/issues"
+    "url": "https://github.com/Artifact-Virtual/mach6/issues"
   },
   "engines": {
     "node": ">=20.0.0"
