@@ -1,6 +1,8 @@
 /**
  * Mach6 CLI Config Wizard
  * Interactive first-time setup — generates mach6.json + .env
+ * 
+ * Built by Artifact Virtual.
  */
 
 import * as readline from 'node:readline';
@@ -8,6 +10,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
+import {
+  palette, gradient, multiGradient, banner, logo, tagline,
+  box, sectionHeader, ok, warn, fail, info, step, kvLine,
+  divider, thickDivider, progressBar, versionBanner,
+} from './brand.js';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -40,10 +47,10 @@ interface WizardConfig {
 // ── Constants ────────────────────────────────────────────────
 
 const PROVIDERS = [
-  { id: 'github-copilot', name: 'GitHub Copilot (auto-auth via gh CLI)', defaultModel: 'claude-sonnet-4', needsKey: false },
-  { id: 'anthropic', name: 'Anthropic (Claude)', defaultModel: 'claude-sonnet-4-20250514', needsKey: true },
-  { id: 'openai', name: 'OpenAI (GPT-4o)', defaultModel: 'gpt-4o', needsKey: true },
-  { id: 'gladius', name: 'Gladius (local model)', defaultModel: 'gladius-125m', needsKey: false },
+  { id: 'github-copilot', name: 'GitHub Copilot', detail: 'auto-auth via gh CLI', defaultModel: 'claude-sonnet-4', needsKey: false, icon: '◈' },
+  { id: 'anthropic', name: 'Anthropic', detail: 'Claude models', defaultModel: 'claude-sonnet-4-20250514', needsKey: true, icon: '◉' },
+  { id: 'openai', name: 'OpenAI', detail: 'GPT-4o / o3', defaultModel: 'gpt-4o', needsKey: true, icon: '◎' },
+  { id: 'gladius', name: 'Gladius', detail: 'local model', defaultModel: 'gladius-125m', needsKey: false, icon: '◇' },
 ];
 
 const MODELS_BY_PROVIDER: Record<string, { id: string; name: string }[]> = {
@@ -68,37 +75,23 @@ const MODELS_BY_PROVIDER: Record<string, { id: string; name: string }[]> = {
 };
 
 const POLICIES = [
-  { id: 'allowlist', name: 'Allowlist — only specified senders' },
-  { id: 'open', name: 'Open — respond to everyone' },
+  { id: 'allowlist', name: 'Allowlist', detail: 'only specified senders' },
+  { id: 'open', name: 'Open', detail: 'respond to everyone' },
 ];
 
 const GROUP_POLICIES = [
-  { id: 'mention-only', name: 'Mention-only — respond when @mentioned' },
-  { id: 'allowlist', name: 'Allowlist — only from allowed senders in allowed groups' },
-  { id: 'off', name: 'Disabled — ignore all group messages' },
+  { id: 'mention-only', name: 'Mention-only', detail: 'respond when @mentioned' },
+  { id: 'allowlist', name: 'Allowlist', detail: 'allowed senders in allowed groups' },
+  { id: 'off', name: 'Disabled', detail: 'ignore all group messages' },
 ];
 
-// ── ANSI Colors ──────────────────────────────────────────────
-
-const c = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  cyan: '\x1b[36m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  red: '\x1b[31m',
-  magenta: '\x1b[35m',
-  white: '\x1b[37m',
-};
-
-function print(msg: string): void { process.stdout.write(msg); }
-function println(msg = ''): void { console.log(msg); }
+const WIZARD_STEPS = ['Provider', 'Channels', 'Access', 'Workspace', 'Review'];
 
 // ── Wizard Class ─────────────────────────────────────────────
 
 class Wizard {
   private rl: readline.Interface;
+  private currentStep = 0;
 
   constructor() {
     this.rl = readline.createInterface({
@@ -107,18 +100,35 @@ class Wizard {
     });
   }
 
+  private print(msg: string): void { process.stdout.write(msg); }
+  private println(msg = ''): void { console.log(msg); }
+
+  // ── Step Progress ───────────────────────────────────
+
+  private stepProgress(): string {
+    return WIZARD_STEPS.map((s, i) => {
+      if (i < this.currentStep) return `${palette.green}● ${s}${palette.reset}`;
+      if (i === this.currentStep) return `${palette.bold}${palette.cyan}◉ ${s}${palette.reset}`;
+      return `${palette.dim}○ ${s}${palette.reset}`;
+    }).join(`${palette.dark}  ─  ${palette.reset}`);
+  }
+
+  // ── Input Methods ───────────────────────────────────
+
   private ask(prompt: string, defaultVal?: string): Promise<string> {
-    const hint = defaultVal ? ` ${c.dim}(${defaultVal})${c.reset}` : '';
+    const hint = defaultVal ? ` ${palette.dim_attr}${palette.dim}(${defaultVal})${palette.reset}` : '';
+    const arrow = `${palette.violet}❯${palette.reset}`;
     return new Promise(resolve => {
-      this.rl.question(`${c.cyan}? ${c.bold}${prompt}${c.reset}${hint} `, answer => {
+      this.rl.question(`  ${arrow} ${palette.bold}${palette.white}${prompt}${palette.reset}${hint} `, answer => {
         resolve(answer.trim() || defaultVal || '');
       });
     });
   }
 
   private async askMasked(prompt: string): Promise<string> {
+    const arrow = `${palette.violet}❯${palette.reset}`;
     return new Promise(resolve => {
-      print(`${c.cyan}? ${c.bold}${prompt}${c.reset} `);
+      this.print(`  ${arrow} ${palette.bold}${palette.white}${prompt}${palette.reset} `);
       let value = '';
       const stdin = process.stdin;
       const wasRaw = stdin.isRaw;
@@ -129,21 +139,21 @@ class Wizard {
         if (ch === '\r' || ch === '\n') {
           stdin.removeListener('data', onData);
           if (stdin.isTTY) stdin.setRawMode(wasRaw ?? false);
-          println();
+          this.println();
           resolve(value);
         } else if (ch === '\x7f' || ch === '\b') {
-          if (value.length > 0) { value = value.slice(0, -1); print('\b \b'); }
-        } else if (ch === '\x03') { println(); process.exit(0); }
-        else if (ch.charCodeAt(0) >= 32) { value += ch; print('•'); }
+          if (value.length > 0) { value = value.slice(0, -1); this.print('\b \b'); }
+        } else if (ch === '\x03') { this.println(); process.exit(0); }
+        else if (ch.charCodeAt(0) >= 32) { value += ch; this.print(`${palette.gold}•${palette.reset}`); }
       };
       stdin.on('data', onData);
     });
   }
 
-  private async selectOne(prompt: string, choices: { id: string; name: string }[]): Promise<string> {
+  private async selectOne(prompt: string, choices: { id: string; name: string; detail?: string }[]): Promise<string> {
     if (!process.stdin.isTTY) {
-      println(`${c.cyan}? ${c.bold}${prompt}${c.reset}`);
-      choices.forEach((ch, i) => println(`  ${i + 1}. ${ch.name}`));
+      this.println(`  ${palette.violet}❯${palette.reset} ${palette.bold}${prompt}${palette.reset}`);
+      choices.forEach((ch, i) => this.println(`    ${palette.silver}${i + 1}.${palette.reset} ${ch.name}${ch.detail ? ` ${palette.dim}— ${ch.detail}${palette.reset}` : ''}`));
       const answer = await this.ask(`  Enter number (1-${choices.length}):`);
       const idx = parseInt(answer, 10) - 1;
       return choices[Math.max(0, Math.min(idx, choices.length - 1))].id;
@@ -152,20 +162,28 @@ class Wizard {
     return new Promise(resolve => {
       let selected = 0;
       const render = (): void => {
-        print(`\x1b[${choices.length + 1}A`);
-        println(`${c.cyan}? ${c.bold}${prompt}${c.reset}`);
+        this.print(`\x1b[${choices.length + 1}A`);
+        this.println(`  ${palette.violet}❯${palette.reset} ${palette.bold}${palette.white}${prompt}${palette.reset}`);
         choices.forEach((ch, i) => {
-          println(i === selected
-            ? `  ${c.cyan}❯ ${ch.name}${c.reset}`
-            : `    ${c.dim}${ch.name}${c.reset}`);
+          if (i === selected) {
+            const name = gradient(ch.name, [0, 229, 255], [138, 43, 226]);
+            const detail = ch.detail ? ` ${palette.silver}— ${ch.detail}${palette.reset}` : '';
+            this.println(`    ${palette.cyan}▸${palette.reset} ${name}${detail}`);
+          } else {
+            this.println(`    ${palette.dim}  ${ch.name}${ch.detail ? ` — ${ch.detail}` : ''}${palette.reset}`);
+          }
         });
       };
 
-      println(`${c.cyan}? ${c.bold}${prompt}${c.reset}`);
+      this.println(`  ${palette.violet}❯${palette.reset} ${palette.bold}${palette.white}${prompt}${palette.reset}`);
       choices.forEach((ch, i) => {
-        println(i === selected
-          ? `  ${c.cyan}❯ ${ch.name}${c.reset}`
-          : `    ${c.dim}${ch.name}${c.reset}`);
+        if (i === selected) {
+          const name = gradient(ch.name, [0, 229, 255], [138, 43, 226]);
+          const detail = ch.detail ? ` ${palette.silver}— ${ch.detail}${palette.reset}` : '';
+          this.println(`    ${palette.cyan}▸${palette.reset} ${name}${detail}`);
+        } else {
+          this.println(`    ${palette.dim}  ${ch.name}${ch.detail ? ` — ${ch.detail}` : ''}${palette.reset}`);
+        }
       });
 
       const stdin = process.stdin;
@@ -179,32 +197,26 @@ class Wizard {
         else if (key === '\r' || key === '\n') {
           stdin.removeListener('data', onData);
           stdin.setRawMode(false);
-          print(`\x1b[${choices.length + 1}A`);
-          println(`${c.cyan}? ${c.bold}${prompt} ${c.green}${choices[selected].name}${c.reset}`);
-          for (let i = 0; i < choices.length; i++) println('\x1b[2K');
-          print(`\x1b[${choices.length}A`);
+          // Collapse the selector into a single confirmed line
+          this.print(`\x1b[${choices.length + 1}A`);
+          const confirmed = gradient(choices[selected].name, [0, 229, 255], [138, 43, 226]);
+          this.println(`  ${palette.green}✓${palette.reset} ${palette.white}${prompt}${palette.reset} ${confirmed}`);
+          for (let i = 0; i < choices.length; i++) this.println('\x1b[2K');
+          this.print(`\x1b[${choices.length}A`);
           resolve(choices[selected].id);
-        } else if (key === '\x03') { println(); process.exit(0); }
+        } else if (key === '\x03') { this.println(); process.exit(0); }
       };
       stdin.on('data', onData);
     });
   }
 
   private async confirm(prompt: string, defaultYes = true): Promise<boolean> {
-    const hint = defaultYes ? 'Y/n' : 'y/N';
+    const hint = defaultYes
+      ? `${palette.green}Y${palette.reset}${palette.dim}/n${palette.reset}`
+      : `${palette.dim}y/${palette.reset}${palette.green}N${palette.reset}`;
     const answer = await this.ask(`${prompt} (${hint})`);
     if (answer === '') return defaultYes;
     return answer.toLowerCase().startsWith('y');
-  }
-
-  private section(title: string): void {
-    println();
-    println(`${c.magenta}  ── ${title} ${'─'.repeat(Math.max(0, 50 - title.length))}${c.reset}`);
-    println();
-  }
-
-  private done(msg: string): void {
-    println(`  ${c.green}✓${c.reset} ${msg}`);
   }
 
   // ── Validation ──────────────────────────────────────
@@ -215,21 +227,25 @@ class Wizard {
   }
 
   private validateDiscordToken(token: string): boolean {
-    // Discord tokens are base64-encoded and have 3 parts separated by dots
     return token.length > 50 && token.split('.').length >= 2;
   }
 
   private validatePhoneNumber(phone: string): boolean {
-    // Basic: starts with + or digits, 7-15 chars
     return /^\+?[\d\s\-()]{7,20}$/.test(phone);
   }
 
   // ── Main Flow ───────────────────────────────────────
 
   async run(): Promise<void> {
-    println();
-    println(`${c.bold}${c.cyan}  ⚡ Mach6 Setup${c.reset}`);
-    println(`${c.dim}  Interactive configuration wizard${c.reset}`);
+    // ── Banner ────────────────────────────────────────
+
+    this.println();
+    this.println(banner());
+    this.println();
+    this.println(`  ${palette.bold}${gradient('SETUP WIZARD', [255, 193, 37], [255, 160, 0])}${palette.reset}`);
+    this.println(tagline());
+    this.println();
+    this.println(thickDivider());
 
     const config: WizardConfig = {
       provider: '', model: '', apiKey: '', workspace: process.cwd(),
@@ -242,18 +258,24 @@ class Wizard {
 
     // ── 1. Provider ──────────────────────────────────
 
-    this.section('LLM Provider');
+    this.currentStep = 0;
+    this.println(sectionHeader('LLM Provider'));
+    this.println(`  ${this.stepProgress()}`);
+    this.println();
 
-    config.provider = await this.selectOne('Default provider:', PROVIDERS.map(p => ({ id: p.id, name: p.name })));
+    config.provider = await this.selectOne(
+      'Default provider:',
+      PROVIDERS.map(p => ({ id: p.id, name: `${p.icon} ${p.name}`, detail: p.detail })),
+    );
     const provider = PROVIDERS.find(p => p.id === config.provider)!;
 
     // API Key
     if (provider.needsKey) {
       config.apiKey = await this.askMasked(`API key for ${provider.name}:`);
-      if (config.apiKey) this.done('API key set');
-      else println(`  ${c.yellow}⚠${c.reset} No API key — set it in .env later`);
+      if (config.apiKey) this.println(ok('API key set'));
+      else this.println(warn(`No API key — set it in .env later`));
     } else if (config.provider === 'github-copilot') {
-      println(`  ${c.dim}GitHub Copilot auto-resolves tokens via \`gh auth login\`${c.reset}`);
+      this.println(info(`Auto-resolves tokens via ${palette.cyan}\`gh auth login\`${palette.reset}`));
     }
 
     // Model
@@ -263,53 +285,66 @@ class Wizard {
     } else {
       config.model = provider.defaultModel;
     }
-    this.done(`Provider: ${provider.name} / ${config.model}`);
+    this.println(ok(`${palette.white}${provider.name}${palette.reset} ${palette.dim}/${palette.reset} ${palette.cyan}${config.model}${palette.reset}`));
 
     // ── 2. Channels ──────────────────────────────────
 
-    this.section('Channels');
+    this.currentStep = 1;
+    this.println(sectionHeader('Channels'));
+    this.println(`  ${this.stepProgress()}`);
+    this.println();
 
     // Discord
     config.discord.enabled = await this.confirm('Enable Discord?', false);
     if (config.discord.enabled) {
       config.discord.token = await this.askMasked('Discord bot token:');
       if (config.discord.token && !this.validateDiscordToken(config.discord.token)) {
-        println(`  ${c.yellow}⚠${c.reset} Token looks short — make sure it's correct`);
+        this.println(warn('Token looks short — make sure it\'s correct'));
       }
       config.discord.botId = await this.ask('Discord bot (client) ID:');
       const siblings = await this.ask('Sibling bot IDs (comma-separated, or blank):');
       if (siblings) config.discord.siblingBotIds = siblings.split(',').map(s => s.trim()).filter(Boolean);
-      this.done('Discord configured');
+      this.println(ok(`Discord ${palette.green}enabled${palette.reset}`));
+    } else {
+      this.println(info(`Discord ${palette.dim}skipped${palette.reset}`));
     }
+
+    this.println();
 
     // WhatsApp
     config.whatsapp.enabled = await this.confirm('Enable WhatsApp?', false);
     if (config.whatsapp.enabled) {
       config.whatsapp.phoneNumber = await this.ask('Your phone number (with country code):');
       if (config.whatsapp.phoneNumber && !this.validatePhoneNumber(config.whatsapp.phoneNumber)) {
-        println(`  ${c.yellow}⚠${c.reset} Phone format looks unusual — expected: +1234567890`);
+        this.println(warn('Phone format looks unusual — expected: +1234567890'));
       }
       const authDefault = config.whatsapp.authDir.replace(/\\/g, '/');
       const authAnswer = await this.ask('WhatsApp auth directory:', authDefault);
       config.whatsapp.authDir = authAnswer;
-      println(`  ${c.dim}On first start, scan the QR code or enter pairing code${c.reset}`);
-      this.done('WhatsApp configured');
+      this.println(info(`Scan QR code on first start`));
+      this.println(ok(`WhatsApp ${palette.green}enabled${palette.reset}`));
+    } else {
+      this.println(info(`WhatsApp ${palette.dim}skipped${palette.reset}`));
     }
 
     if (!config.discord.enabled && !config.whatsapp.enabled) {
-      println(`  ${c.dim}No channels enabled — you can still use the CLI and Web UI${c.reset}`);
+      this.println();
+      this.println(info(`No channels — CLI and Web UI still work`));
     }
 
     // ── 3. Owner & Policies ──────────────────────────
 
-    this.section('Access Control');
+    this.currentStep = 2;
+    this.println(sectionHeader('Access Control'));
+    this.println(`  ${this.stepProgress()}`);
+    this.println();
 
-    const ownerInput = await this.ask('Owner IDs (comma-separated Discord IDs and/or phone@s.whatsapp.net):');
+    const ownerInput = await this.ask('Owner IDs (comma-separated Discord IDs / phone@s.whatsapp.net):');
     config.ownerIds = ownerInput ? ownerInput.split(',').map(s => s.trim()).filter(Boolean) : [];
     if (config.ownerIds.length === 0) {
-      println(`  ${c.yellow}⚠${c.reset} No owner IDs — the agent won't respond to anyone on channels`);
+      this.println(warn('No owner IDs — agent won\'t respond on channels'));
     } else {
-      this.done(`${config.ownerIds.length} owner(s) configured`);
+      this.println(ok(`${palette.white}${config.ownerIds.length}${palette.reset} owner(s) configured`));
     }
 
     const customPolicies = await this.confirm('Customize channel policies?', false);
@@ -317,60 +352,75 @@ class Wizard {
       config.dmPolicy = await this.selectOne('DM policy:', POLICIES);
       config.groupPolicy = await this.selectOne('Group policy:', GROUP_POLICIES);
     }
-    this.done(`DM: ${config.dmPolicy} | Group: ${config.groupPolicy}`);
+    this.println(ok(`DM: ${palette.cyan}${config.dmPolicy}${palette.reset} ${palette.dim}|${palette.reset} Group: ${palette.cyan}${config.groupPolicy}${palette.reset}`));
 
     // ── 4. Workspace & Server ────────────────────────
 
-    this.section('Workspace');
+    this.currentStep = 3;
+    this.println(sectionHeader('Workspace'));
+    this.println(`  ${this.stepProgress()}`);
+    this.println();
 
     const wsDefault = process.cwd().replace(/\\/g, '/');
     const wsAnswer = await this.ask('Workspace directory:', wsDefault);
     config.workspace = wsAnswer;
     if (process.platform === 'win32') {
-      println(`  ${c.dim}Tip: use forward slashes — "C:/Users/you/workspace"${c.reset}`);
+      this.println(info('Tip: use forward slashes — "C:/Users/you/workspace"'));
     }
 
     const portAnswer = await this.ask('API + Web UI port:', '3006');
     if (this.validatePort(portAnswer)) {
       config.apiPort = parseInt(portAnswer, 10);
     } else {
-      println(`  ${c.yellow}⚠${c.reset} Invalid port, using default 3006`);
+      this.println(warn('Invalid port, using default 3006'));
     }
-    this.done(`Workspace: ${config.workspace} | Port: ${config.apiPort}`);
+    this.println(ok(`${palette.cyan}${config.workspace}${palette.reset} ${palette.dim}:${palette.reset}${palette.gold}${config.apiPort}${palette.reset}`));
 
     // ── 5. Summary ───────────────────────────────────
 
-    this.section('Summary');
+    this.currentStep = 4;
+    this.println(sectionHeader('Review'));
+    this.println(`  ${this.stepProgress()}`);
+    this.println();
 
-    println(`  Provider:   ${c.cyan}${provider.name}${c.reset} / ${config.model}`);
-    println(`  Discord:    ${config.discord.enabled ? `${c.green}enabled${c.reset}` : `${c.dim}disabled${c.reset}`}`);
-    println(`  WhatsApp:   ${config.whatsapp.enabled ? `${c.green}enabled${c.reset}` : `${c.dim}disabled${c.reset}`}`);
-    println(`  Owners:     ${config.ownerIds.length > 0 ? config.ownerIds.join(', ') : `${c.dim}none${c.reset}`}`);
-    println(`  Workspace:  ${config.workspace}`);
-    println(`  Port:       ${config.apiPort}`);
-    println(`  DM policy:  ${config.dmPolicy}`);
-    println(`  Group:      ${config.groupPolicy}`);
-    println();
+    const summaryLines = [
+      kvLine('Provider', `${palette.cyan}${provider.name}${palette.reset} ${palette.dim}/${palette.reset} ${palette.white}${config.model}${palette.reset}`),
+      kvLine('Discord', config.discord.enabled ? `${palette.green}● enabled${palette.reset}` : `${palette.dim}○ disabled${palette.reset}`),
+      kvLine('WhatsApp', config.whatsapp.enabled ? `${palette.green}● enabled${palette.reset}` : `${palette.dim}○ disabled${palette.reset}`),
+      kvLine('Owners', config.ownerIds.length > 0 ? `${palette.white}${config.ownerIds.join(', ')}${palette.reset}` : `${palette.dim}none${palette.reset}`),
+      kvLine('Workspace', `${palette.cyan}${config.workspace}${palette.reset}`),
+      kvLine('Port', `${palette.gold}${config.apiPort}${palette.reset}`),
+      kvLine('DM Policy', `${palette.white}${config.dmPolicy}${palette.reset}`),
+      kvLine('Group Policy', `${palette.white}${config.groupPolicy}${palette.reset}`),
+    ];
+
+    this.println(box(summaryLines, {
+      borderColor: palette.violet,
+      title: gradient('CONFIGURATION', [255, 193, 37], [255, 160, 0]),
+      width: 58,
+    }));
+    this.println();
 
     const proceed = await this.confirm('Write configuration files?', true);
     if (!proceed) {
-      println(`\n  ${c.dim}Cancelled. No files written.${c.reset}\n`);
+      this.println();
+      this.println(info('Cancelled. No files written.'));
+      this.println();
       this.rl.close();
       return;
     }
 
     // ── 6. Write Files ───────────────────────────────
 
-    this.section('Writing Files');
+    this.println(sectionHeader('Writing Files'));
 
-    // Check for existing files
     const configPath = path.resolve(process.cwd(), 'mach6.json');
     const envPath = path.resolve(process.cwd(), '.env');
 
     if (fs.existsSync(configPath)) {
       const overwrite = await this.confirm('mach6.json already exists. Overwrite?', false);
       if (!overwrite) {
-        println(`  ${c.dim}Skipping mach6.json${c.reset}`);
+        this.println(info('Skipping mach6.json'));
       } else {
         this.writeConfig(configPath, config);
       }
@@ -381,7 +431,7 @@ class Wizard {
     if (fs.existsSync(envPath)) {
       const overwrite = await this.confirm('.env already exists. Overwrite?', false);
       if (!overwrite) {
-        println(`  ${c.dim}Skipping .env${c.reset}`);
+        this.println(info('Skipping .env'));
       } else {
         this.writeEnv(envPath, config);
       }
@@ -391,17 +441,31 @@ class Wizard {
 
     // ── Done ─────────────────────────────────────────
 
-    println();
-    println(`${c.bold}${c.green}  ✓ Setup complete!${c.reset}`);
-    println();
-    println(`  ${c.dim}Next steps:${c.reset}`);
-    println(`    1. Review ${c.cyan}mach6.json${c.reset} and ${c.cyan}.env${c.reset}`);
-    println(`    2. Build:  ${c.cyan}npm run build${c.reset}`);
-    println(`    3. Start:  ${c.cyan}node dist/gateway/daemon.js --config=mach6.json${c.reset}`);
+    this.println();
+    this.println(thickDivider());
+    this.println();
+
+    const doneMsg = gradient('SETUP COMPLETE', [0, 230, 118], [0, 188, 212]);
+    this.println(`  ${palette.bold}${palette.green}⚡${palette.reset} ${palette.bold}${doneMsg}${palette.reset}`);
+    this.println();
+
+    const nextSteps = [
+      `${palette.dim}1.${palette.reset} Review ${palette.cyan}mach6.json${palette.reset} and ${palette.cyan}.env${palette.reset}`,
+      `${palette.dim}2.${palette.reset} Build:  ${palette.gold}npm run build${palette.reset}`,
+      `${palette.dim}3.${palette.reset} Start:  ${palette.gold}node dist/gateway/daemon.js --config=mach6.json${palette.reset}`,
+    ];
     if (config.whatsapp.enabled) {
-      println(`    4. Scan the WhatsApp QR code on first boot`);
+      nextSteps.push(`${palette.dim}4.${palette.reset} Scan the WhatsApp QR code on first boot`);
     }
-    println();
+
+    this.println(box(nextSteps, {
+      borderColor: palette.teal,
+      title: gradient('NEXT STEPS', [0, 229, 255], [0, 188, 212]),
+      width: 60,
+    }));
+    this.println();
+    this.println(tagline());
+    this.println();
 
     this.rl.close();
   }
@@ -463,13 +527,13 @@ class Wizard {
     }
 
     fs.writeFileSync(filepath, JSON.stringify(json, null, 2) + '\n');
-    this.done(`Config saved to ${filepath}`);
+    this.println(ok(`Config saved to ${palette.cyan}${filepath}${palette.reset}`));
   }
 
   private writeEnv(filepath: string, config: WizardConfig): void {
     const lines: string[] = [
-      '# Mach6 — Environment Variables',
-      '# Generated by `mach6 init`',
+      '# ⚡ Mach6 — Environment Variables',
+      '# Generated by `mach6 init` · Artifact Virtual',
       '',
     ];
 
@@ -506,7 +570,7 @@ class Wizard {
     lines.push('');
 
     fs.writeFileSync(filepath, lines.join('\n') + '\n');
-    this.done(`.env saved to ${filepath}`);
+    this.println(ok(`.env saved to ${palette.cyan}${filepath}${palette.reset}`));
   }
 }
 

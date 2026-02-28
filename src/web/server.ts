@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { palette, ok } from '../cli/brand.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -460,7 +461,7 @@ function formatUptime(ms: number): string {
 export function startWebServer(port = 3006): http.Server {
   const server = http.createServer((req, res) => {
     handleRequest(req, res).catch(err => {
-      console.error('[mach6-web]', err);
+      console.error(`${palette.dim}  [mach6-web]${palette.reset}`, err);
       if (!res.headersSent) {
         json(res, { error: 'Internal server error' }, 500);
       }
@@ -480,7 +481,7 @@ export function startWebServer(port = 3006): http.Server {
   sessions.set(defaultSession.id, defaultSession);
 
   server.listen(port, () => {
-    console.log(`\n  ⚡ Mach6 Web UI → http://localhost:${port}\n`);
+    console.log(ok(`Web UI → ${palette.cyan}http://localhost:${port}${palette.reset}`));
   });
 
   return server;

@@ -15,6 +15,7 @@
 
 import * as http from 'node:http';
 import * as crypto from 'node:crypto';
+import { palette, ok, warn } from '../cli/brand.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -65,7 +66,7 @@ export class HttpApiServer {
     return new Promise((resolve) => {
       this.server = http.createServer((req, res) => {
         this.handleRequest(req, res).catch(err => {
-          console.error('[http-api] Unhandled error:', err);
+          console.error(`${palette.dim}  [http-api]${palette.reset} ${palette.red}Unhandled error:${palette.reset}`, err);
           if (!res.headersSent) {
             this.json(res, { error: 'Internal server error' }, 500);
           }
@@ -74,17 +75,17 @@ export class HttpApiServer {
 
       this.server.on('error', (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {
-          console.warn(`  ⚠️  HTTP API port ${this.config.port} in use — API disabled (non-fatal)`);
+          console.log(warn(`HTTP API port ${palette.white}${this.config.port}${palette.reset} in use — API disabled ${palette.dim}(non-fatal)${palette.reset}`));
           this.server = null;
           resolve(); // Don't crash the gateway over a port conflict
         } else {
-          console.error(`  ❌ HTTP API error: ${err.message}`);
+          console.error(`  ${palette.red}✗${palette.reset} HTTP API error: ${err.message}`);
           this.server = null;
           resolve(); // Non-fatal — gateway continues without HTTP API
         }
       });
       this.server.listen(this.config.port, '0.0.0.0', () => {
-        console.log(`  ✅ HTTP API → http://0.0.0.0:${this.config.port}/api/v1/`);
+        console.log(ok(`HTTP API → ${palette.cyan}http://0.0.0.0:${this.config.port}/api/v1/${palette.reset}`));
         resolve();
       });
     });
@@ -169,7 +170,7 @@ export class HttpApiServer {
       parsed.sessionId = `http-${parsed.source ?? 'web'}-${parsed.senderId ?? 'anon'}`;
     }
 
-    console.log(`[http-api] Chat: "${parsed.text.slice(0, 80)}..." (session=${parsed.sessionId})`);
+    console.log(`${palette.dim}  [http-api]${palette.reset} Chat: "${parsed.text.slice(0, 80)}..." ${palette.dim}(session=${parsed.sessionId})${palette.reset}`);
 
     try {
       const startMs = Date.now();
@@ -182,7 +183,7 @@ export class HttpApiServer {
         durationMs: response.durationMs,
       });
     } catch (err) {
-      console.error('[http-api] Chat error:', err);
+      console.error(`${palette.dim}  [http-api]${palette.reset} ${palette.red}Chat error:${palette.reset}`, err);
       this.json(res, {
         error: err instanceof Error ? err.message : String(err),
       }, 500);
@@ -209,13 +210,13 @@ export class HttpApiServer {
       return this.json(res, { error: 'target and text fields are required' }, 400);
     }
 
-    console.log(`[http-api] Relay to ${parsed.target}: "${parsed.text.slice(0, 80)}..."`);
+    console.log(`${palette.dim}  [http-api]${palette.reset} Relay to ${palette.cyan}${parsed.target}${palette.reset}: "${parsed.text.slice(0, 80)}..."`);
 
     try {
       const result = await this.config.onRelay(parsed.target, parsed.text);
       this.json(res, result);
     } catch (err) {
-      console.error('[http-api] Relay error:', err);
+      console.error(`${palette.dim}  [http-api]${palette.reset} ${palette.red}Relay error:${palette.reset}`, err);
       this.json(res, { error: err instanceof Error ? err.message : String(err) }, 500);
     }
   }
