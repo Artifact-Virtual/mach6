@@ -487,7 +487,8 @@ export function startWebServer(port = 3006): http.Server {
 }
 
 // Run directly
-if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('web/server.js')) {
+const __filename = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)) {
   const port = parseInt(process.env.MACH6_PORT ?? '3006', 10);
   startWebServer(port);
 }

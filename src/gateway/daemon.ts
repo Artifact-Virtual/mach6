@@ -10,6 +10,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 // Use global process (don't import — it shadows signal handlers)
 import { ChannelRegistry } from '../channels/registry.js';
 import { DiscordAdapter } from '../channels/adapters/discord.js';
@@ -898,7 +899,8 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
 }
 
 // Run directly
-if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('gateway/daemon.js')) {
+const __filename = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)) {
   const configPath = process.argv.find(a => a.startsWith('--config='))?.split('=')[1];
   startGateway(configPath).catch(err => {
     console.error('Gateway startup failed:', err);
