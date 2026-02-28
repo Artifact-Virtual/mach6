@@ -1,8 +1,8 @@
 /**
  * Mach6 — HTTP API Channel Adapter
  * 
- * Exposes a REST API for external clients (like the GLADIUS page) to
- * send messages to AVA and receive responses. Routes through the same
+ * Exposes a REST API for external clients (web apps, CLI tools, etc.) to
+ * send messages and receive responses. Routes through the same
  * agent pipeline as Discord/WhatsApp.
  * 
  * Endpoints:

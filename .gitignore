@@ -5,5 +5,10 @@ dist/
 *.js.map
 *.d.ts
 !src/**
+
+# Secrets & local config — never commit
 .env
 mach6.json
+
+# Keep the template — .env.example IS committed to the repo
+!.env.example

@@ -66,7 +66,7 @@ let totalTokens = 0;
 
 let config: Config = {
   provider: 'anthropic',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-opus-4-6',
   temperature: 0.7,
   maxTokens: 8192,
   apiKeys: {},
@@ -131,8 +131,8 @@ function matchRoute(pattern: string, pathname: string): Record<string, string> |
 const PROVIDERS = [
   { id: 'anthropic', name: 'Anthropic', models: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-5-haiku-20241022'] },
 
-  { id: 'github-copilot', name: 'GitHub Copilot', models: ['claude-sonnet-4-20250514', 'gpt-4o'] },
-  { id: 'gladius', name: 'GLADIUS (Local)', models: ['gladius-125m', 'gladius-1b'] },
+  { id: 'github-copilot', name: 'GitHub Copilot', models: ['claude-opus-4-6', 'claude-sonnet-4-20250514', 'gpt-4o', 'o3-mini'] },
+  { id: 'gladius', name: 'Local (Gladius)', models: ['gladius-125m', 'gladius-1b'] },
 ];
 
 const TOOLS = [

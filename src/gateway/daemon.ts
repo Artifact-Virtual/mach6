@@ -61,16 +61,10 @@ interface GatewayConfig {
       enabled: boolean;
       token: string;
       botId?: string;
+      /** Other bot IDs to suppress responses to (prevents cross-bot echo) */
+      siblingBotIds?: string[];
       policy?: Partial<ChannelPolicy>;
     };
-    /** Additional Discord bots (e.g., AVA_direct for the AVA server) */
-    discordExtra?: Array<{
-      id: string;
-      enabled: boolean;
-      token: string;
-      botId?: string;
-      policy?: Partial<ChannelPolicy>;
-    }>;
     whatsapp?: {
       enabled: boolean;
       authDir: string;
@@ -301,25 +295,17 @@ export class Mach6Gateway {
     if (!channels) return;
 
     // Discord (non-fatal — if Discord fails, other adapters still start)
-    // Collect all Discord bot IDs for sibling yield logic
-    const allDiscordBotIds: string[] = [];
-    if (channels.discord?.botId) allDiscordBotIds.push(channels.discord.botId);
-    for (const extra of channels.discordExtra ?? []) {
-      if (extra.enabled && extra.botId) allDiscordBotIds.push(extra.botId);
-    }
-
     if (channels.discord?.enabled) {
       try {
         console.log('  Starting Discord adapter...');
         const adapter = new DiscordAdapter('discord-main');
-        const siblingBotIds = allDiscordBotIds.filter(id => id !== channels.discord!.botId);
         const policy: ChannelPolicy = {
           dmPolicy: 'open',
           groupPolicy: 'mention-only',
           ownerIds: this.gatewayConfig.ownerIds ?? [],
           requireMention: true,
           selfId: channels.discord.botId, // Required for mention detection
-          siblingBotIds,
+          siblingBotIds: channels.discord.siblingBotIds ?? [],
           ...channels.discord.policy,
         };
 
@@ -335,41 +321,6 @@ export class Mach6Gateway {
         if (discordClient) presenceManager.registerDiscordClient('discord-main', discordClient);
       } catch (err) {
         console.error(`  ⚠️  Discord (main) failed to connect — skipping:`, (err as Error).message);
-      }
-    }
-
-    // Extra Discord bots (e.g., AVA_direct for the AVA community server)
-    if (channels.discordExtra?.length) {
-      for (const extra of channels.discordExtra) {
-        if (!extra.enabled) continue;
-        const adapterId = extra.id ?? `discord-extra-${channels.discordExtra.indexOf(extra)}`;
-        try {
-          console.log(`  Starting Discord adapter: ${adapterId}...`);
-          const extraAdapter = new DiscordAdapter(adapterId);
-          const extraSiblingBotIds = allDiscordBotIds.filter(id => id !== extra.botId);
-          const extraPolicy: ChannelPolicy = {
-            dmPolicy: 'open',
-            groupPolicy: 'open',
-            ownerIds: this.gatewayConfig.ownerIds ?? [],
-            requireMention: false,
-            selfId: extra.botId,
-            siblingBotIds: extraSiblingBotIds,
-            ...extra.policy,
-          };
-
-          await this.channelRegistry.register(
-            extraAdapter,
-            { token: extra.token, botId: extra.botId },
-            extraPolicy,
-          );
-          console.log(`  ✅ Discord (${adapterId}) connected`);
-          presenceManager.registerAdapter(adapterId, (chatId) => extraAdapter.typing(chatId));
-          // Register extra Discord client for rich activity presence
-          const extraClient = extraAdapter.getClient();
-          if (extraClient) presenceManager.registerDiscordClient(adapterId, extraClient);
-        } catch (err) {
-          console.error(`  ⚠️  Discord (${adapterId}) failed to connect — skipping:`, (err as Error).message);
-        }
       }
     }
 
@@ -420,7 +371,7 @@ export class Mach6Gateway {
     this.httpApi = new HttpApiServer({
       port,
       apiKey,
-      allowedOrigins: ['*'], // GLADIUS page is on Vercel, allow all for now
+      allowedOrigins: (this.config as any).allowedOrigins ?? ['*'],
       onChat: async (request: ChatRequest): Promise<ChatResponse> => {
         return this.handleHttpChat(request);
       },
@@ -927,15 +878,9 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
         enabled: !!process.env.DISCORD_BOT_TOKEN || !!(config as any).discord?.token,
         token: process.env.DISCORD_BOT_TOKEN ?? (config as any).discord?.token ?? '',
         botId: (config as any).discord?.botId,
+        siblingBotIds: (config as any).discord?.siblingBotIds,
         policy: (config as any).discord?.policy,
       },
-      discordExtra: ((config as any).discordExtra ?? []).map((e: any) => ({
-        id: e.id ?? 'discord-extra',
-        enabled: !!e.enabled,
-        token: e.token ?? '',
-        botId: e.botId,
-        policy: e.policy,
-      })),
       whatsapp: {
         enabled: !!(config as any).whatsapp?.enabled,
         authDir: (config as any).whatsapp?.authDir ?? path.join(os.homedir(), '.mach6', 'whatsapp-auth'),
