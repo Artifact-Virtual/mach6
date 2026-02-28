@@ -2,14 +2,14 @@
 
 # ⚡ Mach6
 
-**Multi-channel AI agent framework that runs on a laptop.**
+**Production-grade AI agent framework. Single process. Any machine.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-green.svg)](https://nodejs.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 
-A persistent daemon that connects to messaging platforms, routes conversations through LLM providers, and executes tool calls in an agentic loop. No cloud dependencies. No vendor lock-in. **Your machine, your data, your keys.**
+A persistent daemon that connects messaging platforms, LLM providers, and tool execution into a single agentic loop — with real-time interrupts, message coalescing, and sub-agent orchestration. No Docker. No Redis. No cloud dependencies. **Your machine, your data, your keys.**
 
 [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Config](#-configuration) · [Providers](#-providers) · [Tools](#-tools) · [Web UI](#-web-ui)
 
@@ -49,19 +49,39 @@ cp .env.example .env
 
 ## 🏗 Architecture
 
-```
-                         ┌──────────────┐
-                         │   Web UI     │
-                         │   :3006      │
-                         └──────┬───────┘
-                                │ SSE
-┌──────────┐  ┌──────────┐  ┌──┴───────────┐  ┌──────────┐  ┌─────────┐
-│ Discord  │──│  Router   │──│  Message Bus │──│  Agent   │──│ Provider│──→ LLM
-│ WhatsApp │  │  Policy   │  │  Priority Q  │  │  Runner  │  │ (swap)  │
-│ HTTP API │  │  Dedup    │  │  Coalesce    │  │  Tools   │  └─────────┘
-└──────────┘  └──────────┘  │  Interrupt   │  │  Abort   │
-                            │  Backpressure│  │  Iterate │
-                            └──────────────┘  └──────────┘
+```mermaid
+graph LR
+    subgraph Channels
+        D[Discord]
+        W[WhatsApp]
+        H[HTTP API]
+    end
+
+    subgraph Router
+        R[Policy\nDedup\nPriority]
+    end
+
+    subgraph Bus[Message Bus]
+        Q[Priority Queue\nCoalescing\nInterrupts\nBackpressure]
+    end
+
+    subgraph Agent
+        A[Runner\nTools\nAbort\nIterate]
+    end
+
+    subgraph Provider
+        P[LLM Provider\nHot-swappable]
+    end
+
+    UI[Web UI :3006] -->|SSE| Q
+
+    D --> R
+    W --> R
+    H --> R
+    R --> Q
+    Q --> A
+    A --> P
+    P --> LLM((LLM))
 ```
 
 | Layer | What it does |
@@ -106,9 +126,9 @@ Three messages in rapid succession? Mach6 buffers and merges them:
 
 One coherent request, one turn, no wasted tokens.
 
-### Single Process, Zero Infrastructure
+### Single Process, Full Stack
 
-One Node.js daemon. No Docker. No Redis. No Kubernetes. No microservices. Install, configure, run. It's a binary that talks to LLMs and messaging platforms. That's it.
+One Node.js daemon runs everything — channels, routing, sessions, tools, providers, web UI. No Docker. No Redis. No Kubernetes. No microservices. The same binary runs on a $200 VPS or a bare-metal server. CPU-only, no GPU required. If it runs Node.js, it runs Mach6.
 
 ---
 
