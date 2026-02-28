@@ -7,6 +7,13 @@
   "bin": {
     "mach6": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "web",
+    "README.md",
+    "LICENSE",
+    "mach6.example.json"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/gateway/daemon.js --config=mach6.json",
