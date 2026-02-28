@@ -8,6 +8,7 @@
  */
 
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 // Use global process (don't import — it shadows signal handlers)
 import { ChannelRegistry } from '../channels/registry.js';
@@ -874,24 +875,27 @@ export class Mach6Gateway {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
 
-    // SIGUSR1 = hot-reload config
-    process.on('SIGUSR1', () => {
-      console.log('[gateway] SIGUSR1 — reloading config...');
-      try {
-        this.config = loadConfig(this.gatewayConfig.configPath);
-        this.providerName = this.config.defaultProvider;
-        this.provider = PROVIDERS.get(this.providerName)!;
-        this.model = this.config.defaultModel;
-        this.systemPrompt = buildSystemPrompt({
-          workspace: this.config.workspace,
-          tools: this.toolRegistry.list().map(t => t.name),
-        });
-        console.log(`[gateway] System prompt refreshed (${this.systemPrompt.length} chars)`);
-        console.log('[gateway] Config reloaded successfully.');
-      } catch (err) {
-        console.error('[gateway] Config reload failed:', err);
-      }
-    });
+    // SIGUSR1 = hot-reload config (Linux/macOS only — not supported on Windows)
+    // On Windows: restart the process, or POST /api/v1/health to verify state
+    if (process.platform !== 'win32') {
+      process.on('SIGUSR1', () => {
+        console.log('[gateway] SIGUSR1 — reloading config...');
+        try {
+          this.config = loadConfig(this.gatewayConfig.configPath);
+          this.providerName = this.config.defaultProvider;
+          this.provider = PROVIDERS.get(this.providerName)!;
+          this.model = this.config.defaultModel;
+          this.systemPrompt = buildSystemPrompt({
+            workspace: this.config.workspace,
+            tools: this.toolRegistry.list().map(t => t.name),
+          });
+          console.log(`[gateway] System prompt refreshed (${this.systemPrompt.length} chars)`);
+          console.log('[gateway] Config reloaded successfully.');
+        } catch (err) {
+          console.error('[gateway] Config reload failed:', err);
+        }
+      });
+    }
   }
 
   // ── Status ─────────────────────────────────────────────────────────────
@@ -934,7 +938,7 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
       })),
       whatsapp: {
         enabled: !!(config as any).whatsapp?.enabled,
-        authDir: (config as any).whatsapp?.authDir ?? path.join(process.env.HOME ?? '~', '.mach6/whatsapp-auth'),
+        authDir: (config as any).whatsapp?.authDir ?? path.join(os.homedir(), '.mach6', 'whatsapp-auth'),
         phoneNumber: (config as any).whatsapp?.phoneNumber,
         autoRead: (config as any).whatsapp?.autoRead ?? true,
         policy: (config as any).whatsapp?.policy,

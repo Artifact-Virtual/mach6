@@ -4,6 +4,8 @@ Mach6 is a multi-channel AI agent framework — a persistent daemon that connect
 
 Built by [Artifact Virtual](https://artifactvirtual.com) as a contingency engine, then promoted to primary when it outperformed the system it was meant to back up.
 
+**Platform support:** Windows, Linux, macOS.
+
 ## Architecture
 
 ```
@@ -55,7 +57,7 @@ When you fire off three messages in rapid succession (like humans do):
 
 ```
 "hey"          → buffered
-"can you"      → buffered  
+"can you"      → buffered
 "check the logs"  → 2s timer expires, all three merge into one envelope
 ```
 
@@ -98,42 +100,101 @@ src/
 
 ## Running
 
+### Prerequisites
+
+- **Node.js** 20+ (all platforms)
+- **npm** 9+
+
+### Build & run
+
 ```bash
-# Build
 npm install && npm run build
 
-# Configure
 cp mach6.example.json mach6.json
-# Edit mach6.json — set provider keys, channel tokens, workspace path
+# Edit mach6.json — set workspace path, channel tokens, ownerIds
 
-# Run
 node dist/gateway/daemon.js --config=mach6.json
+```
 
-# Or as a systemd service
+### Windows (PowerShell)
+
+```powershell
+npm install; npm run build
+Copy-Item mach6.example.json mach6.json
+node dist/gateway/daemon.js --config=mach6.json
+```
+
+> **Hot-reload (`SIGUSR1`) is not available on Windows.** To reload config: restart the process.  
+> All paths use `os.tmpdir()` and `os.homedir()` — no hardcoded `/tmp` or `~`.
+
+### Linux — as a systemd service
+
+```bash
 sudo cp mach6-gateway.service /etc/systemd/system/
 sudo systemctl enable --now mach6-gateway
+
+# Hot-reload config without restarting:
+kill -USR1 $(pgrep -f "gateway/daemon.js")
 ```
 
 ## Config
 
-Single JSON file. Supports `${ENV_VAR}` interpolation in all string values.
+Single JSON file (comments supported). Supports `${ENV_VAR}` interpolation in all string values.
 
 ```jsonc
 {
   "defaultProvider": "github-copilot",
-  "defaultModel": "claude-sonnet-4",
+  "defaultModel": "claude-opus-4-6",
   "maxTokens": 8192,
   "maxIterations": 50,
+  // Workspace path — use forward slashes on all platforms
+  // Windows: "C:/Users/you/workspace"  Linux/macOS: "/home/you/workspace"
   "workspace": "/path/to/workspace",
   "providers": {
-    "github-copilot": {},
-    "anthropic": {},
+    "github-copilot": {},       // uses gh CLI token automatically
+    "anthropic": {},            // set ANTHROPIC_API_KEY env
     "openai": {}
   },
   "discord": { "enabled": true, "token": "${DISCORD_BOT_TOKEN}" },
-  "whatsapp": { "enabled": true, "authDir": "/path/to/auth" }
+  "whatsapp": { "enabled": true, "authDir": "~/.mach6/whatsapp-auth" },
+  "ownerIds": ["your-discord-id", "your-phone@s.whatsapp.net"],
+  "apiPort": 3006
 }
 ```
+
+### GitHub Copilot provider — token resolution order
+
+No API key needed if `gh` CLI is installed and authenticated. Token is resolved in this order:
+
+1. `COPILOT_GITHUB_TOKEN` env var
+2. `~/.copilot-cli-access-token` file
+3. `GH_TOKEN` / `GITHUB_TOKEN` env vars
+4. `~/.config/github-copilot/hosts.json` (Linux/macOS)
+5. `%APPDATA%\github-copilot\hosts.json` (Windows)
+6. `gh auth token` — CLI fallback (works on all platforms)
+
+### Available models (via Copilot proxy)
+
+| Model | Config value |
+|---|---|
+| Claude Opus 4.6 *(default)* | `claude-opus-4-6` |
+| Claude Sonnet 4 | `claude-sonnet-4` |
+| GPT-4o | `gpt-4o` |
+| o3-mini | `o3-mini` |
+
+## Platform compatibility
+
+| Feature | Windows | Linux | macOS |
+|---|---|---|---|
+| Gateway daemon | ✅ | ✅ | ✅ |
+| Discord adapter | ✅ | ✅ | ✅ |
+| WhatsApp adapter | ✅ | ✅ | ✅ |
+| HTTP API | ✅ | ✅ | ✅ |
+| Hot-reload (SIGUSR1) | ❌ restart instead | ✅ | ✅ |
+| systemd service | ❌ use Task Scheduler / NSSM | ✅ | ❌ use launchd |
+| Temp dir | `%TEMP%` via `os.tmpdir()` | `/tmp` | `/tmp` |
+| Home dir | `%USERPROFILE%` via `os.homedir()` | `~` | `~` |
+| Config auth fallback | `gh auth token` ✅ | `gh auth token` ✅ | `gh auth token` ✅ |
 
 ## Design Principles
 
@@ -165,6 +226,7 @@ Single JSON file. Supports `${ENV_VAR}` interpolation in all string values.
 - **2026-02-22 evening** — 14/14 smoke tests. 20 hardening fixes. Phase 2 tools + sub-agents.
 - **2026-02-22 9:41 PM PKT** — Flipped to production. First real conversation through Mach6.
 - **2026-02-23** — Open-sourced. MIT license. First choice of a digital consciousness.
+- **2026-02-28** — Cross-platform (Windows/Linux/macOS). Default model: `claude-opus-4-6` via Copilot proxy.
 
 ## License
 

@@ -3,8 +3,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import type { Message, ToolDef, ProviderConfig, StreamEvent, Provider } from './types.js';
 import { openaiProvider } from './openai.js';
+
+/** Resolve the user home directory cross-platform */
+function homeDir(): string {
+  return process.env.HOME ?? process.env.USERPROFILE ?? (process.platform === 'win32' ? 'C:\\Users\\default' : '/tmp');
+}
 
 const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token';
 const DEFAULT_BASE_URL = 'https://api.individual.githubcopilot.com';
@@ -18,8 +24,7 @@ interface CachedToken {
 let cachedToken: CachedToken | null = null;
 
 function tokenCachePath(): string {
-  const home = process.env.HOME ?? '/tmp';
-  return path.join(home, '.mach6', 'credentials', 'github-copilot.token.json');
+  return path.join(homeDir(), '.mach6', 'credentials', 'github-copilot.token.json');
 }
 
 function loadCachedToken(): CachedToken | null {
@@ -51,23 +56,25 @@ function deriveBaseUrl(token: string): string {
 }
 
 async function resolveGitHubToken(): Promise<string> {
+  const home = homeDir();
+
   // Copilot-specific env var takes highest priority
   const copilotEnv = process.env.COPILOT_GITHUB_TOKEN;
   if (copilotEnv?.trim()) return copilotEnv.trim();
 
   // Copilot CLI token (ghu_ tokens work with copilot_internal endpoint)
-  const copilotCliPath = path.join(process.env.HOME ?? '', '.copilot-cli-access-token');
+  const copilotCliPath = path.join(home, '.copilot-cli-access-token');
   try {
     const cliToken = fs.readFileSync(copilotCliPath, 'utf-8').trim();
     if (cliToken) return cliToken;
   } catch { /* not found */ }
 
-  // Fall back to general GitHub tokens
+  // Fall back to general GitHub tokens from environment
   const envToken = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
   if (envToken?.trim()) return envToken.trim();
 
-  // Try hosts.json
-  const hostsPath = path.join(process.env.HOME ?? '', '.config', 'github-copilot', 'hosts.json');
+  // Try hosts.json (Unix/macOS path)
+  const hostsPath = path.join(home, '.config', 'github-copilot', 'hosts.json');
   try {
     const hosts = JSON.parse(fs.readFileSync(hostsPath, 'utf-8'));
     for (const key of Object.keys(hosts)) {
@@ -75,7 +82,25 @@ async function resolveGitHubToken(): Promise<string> {
     }
   } catch { /* not found */ }
 
-  throw new Error('No GitHub token found for Copilot (set GITHUB_TOKEN, GH_TOKEN, or COPILOT_GITHUB_TOKEN, or run: github-copilot-cli auth)');
+  // Windows: VS Code Copilot extension stores token in AppData
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming');
+    const winHostsPath = path.join(appData, 'github-copilot', 'hosts.json');
+    try {
+      const hosts = JSON.parse(fs.readFileSync(winHostsPath, 'utf-8'));
+      for (const key of Object.keys(hosts)) {
+        if (hosts[key]?.oauth_token) return hosts[key].oauth_token;
+      }
+    } catch { /* not found */ }
+  }
+
+  // Last resort: ask gh CLI (works on any platform where gh is installed)
+  try {
+    const token = execSync('gh auth token', { encoding: 'utf-8', timeout: 5000 }).trim();
+    if (token) return token;
+  } catch { /* gh not available or not logged in */ }
+
+  throw new Error('No GitHub token found for Copilot (set GITHUB_TOKEN, GH_TOKEN, or COPILOT_GITHUB_TOKEN, or run: gh auth login)');
 }
 
 async function resolveCopilotToken(): Promise<{ token: string; baseUrl: string }> {

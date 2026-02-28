@@ -2,6 +2,7 @@
 // Phase 2 uses SessionManager instead, but this remains for backward compat
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { Session, SessionSummary, SessionMetadata } from './types.js';
 
@@ -15,7 +16,7 @@ export class SessionStore {
   private dir: string;
 
   constructor(baseDir?: string) {
-    this.dir = baseDir ?? path.join(process.env.HOME ?? '/tmp', DEFAULT_DIR);
+    this.dir = baseDir ?? path.join(os.homedir(), DEFAULT_DIR);
     fs.mkdirSync(this.dir, { recursive: true });
   }
 

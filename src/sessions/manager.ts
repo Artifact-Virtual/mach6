@@ -1,6 +1,7 @@
 // Mach6 — Session lifecycle manager
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { Message } from '../providers/types.js';
 import type { Session, SessionSummary, SessionMetadata } from './types.js';
@@ -74,7 +75,7 @@ export class SessionManager {
   private ttl: number;
 
   constructor(baseDir?: string, ttl?: number) {
-    this.dir = baseDir ?? path.join(process.env.HOME ?? '/tmp', DEFAULT_DIR);
+    this.dir = baseDir ?? path.join(os.homedir(), DEFAULT_DIR);
     this.ttl = ttl ?? DEFAULT_TTL;
     fs.mkdirSync(this.dir, { recursive: true });
   }

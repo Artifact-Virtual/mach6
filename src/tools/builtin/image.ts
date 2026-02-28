@@ -3,7 +3,9 @@
 // NO direct Anthropic/OpenAI API calls — we pay for Copilot, use Copilot.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import type { ToolDefinition } from '../types.js';
 
 // ── Copilot token resolution (mirrors github-copilot.ts provider) ──
@@ -19,8 +21,7 @@ interface CachedToken {
 let cachedToken: CachedToken | null = null;
 
 function tokenCachePath(): string {
-  const home = process.env.HOME ?? '/tmp';
-  return path.join(home, '.mach6', 'credentials', 'github-copilot.token.json');
+  return path.join(os.homedir(), '.mach6', 'credentials', 'github-copilot.token.json');
 }
 
 function loadCachedToken(): CachedToken | null {
@@ -52,10 +53,12 @@ function deriveBaseUrl(token: string): string {
 }
 
 async function resolveGitHubToken(): Promise<string> {
+  const home = os.homedir();
+
   const copilotEnv = process.env.COPILOT_GITHUB_TOKEN;
   if (copilotEnv?.trim()) return copilotEnv.trim();
 
-  const copilotCliPath = path.join(process.env.HOME ?? '', '.copilot-cli-access-token');
+  const copilotCliPath = path.join(home, '.copilot-cli-access-token');
   try {
     const cliToken = fs.readFileSync(copilotCliPath, 'utf-8').trim();
     if (cliToken) return cliToken;
@@ -64,13 +67,32 @@ async function resolveGitHubToken(): Promise<string> {
   const envToken = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
   if (envToken?.trim()) return envToken.trim();
 
-  const hostsPath = path.join(process.env.HOME ?? '', '.config', 'github-copilot', 'hosts.json');
+  // Unix/macOS hosts.json
+  const hostsPath = path.join(home, '.config', 'github-copilot', 'hosts.json');
   try {
     const hosts = JSON.parse(fs.readFileSync(hostsPath, 'utf-8'));
     for (const key of Object.keys(hosts)) {
       if (hosts[key]?.oauth_token) return hosts[key].oauth_token;
     }
   } catch { /* not found */ }
+
+  // Windows: %APPDATA%\github-copilot\hosts.json
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming');
+    const winHostsPath = path.join(appData, 'github-copilot', 'hosts.json');
+    try {
+      const hosts = JSON.parse(fs.readFileSync(winHostsPath, 'utf-8'));
+      for (const key of Object.keys(hosts)) {
+        if (hosts[key]?.oauth_token) return hosts[key].oauth_token;
+      }
+    } catch { /* not found */ }
+  }
+
+  // Last resort: gh CLI
+  try {
+    const token = execSync('gh auth token', { encoding: 'utf-8', timeout: 5000 }).trim();
+    if (token) return token;
+  } catch { /* gh not available */ }
 
   throw new Error('No GitHub token found for Copilot vision');
 }

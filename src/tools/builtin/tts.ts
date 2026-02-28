@@ -3,11 +3,12 @@
 // Free, no API key needed.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import type { ToolDefinition } from '../types.js';
 
-const TTS_OUTPUT_DIR = '/tmp/mach6-tts';
+const TTS_OUTPUT_DIR = path.join(os.tmpdir(), 'mach6-tts');
 
 // Edge-TTS voice mapping (natural-sounding voices)
 const EDGE_VOICES: Record<string, string> = {

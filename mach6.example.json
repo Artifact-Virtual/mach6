@@ -1,6 +1,6 @@
 {
   "defaultProvider": "github-copilot",
-  "defaultModel": "claude-sonnet-4",
+  "defaultModel": "claude-opus-4-6",
   "maxTokens": 8192,
   "maxIterations": 50,
   "temperature": 0.3,
