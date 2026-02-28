@@ -1,7 +1,7 @@
 {
   "name": "mach6-core",
-  "version": "1.1.1",
-  "description": "Mach6 — Multi-channel AI agent framework. Persistent daemon, real-time interrupts, tool execution. Runs on a laptop.",
+  "version": "1.1.2",
+  "description": "Mach6 \u2014 Multi-channel AI agent framework. Persistent daemon, real-time interrupts, tool execution. Runs on a laptop.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -54,5 +54,8 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0"
+  },
+  "overrides": {
+    "undici": ">=6.23.0"
   }
 }
