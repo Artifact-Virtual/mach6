@@ -1,52 +1,64 @@
-# Release Notes — v1.0.0
+# Release Notes — v1.2.0
 
-## ⚡ Mach6 v1.0.0 — First Stable Release
+## ⚡ Mach6 v1.2.0 — Multi-Bot Coordination
 
 **Date:** February 28, 2026
 
-Mach6 is a multi-channel AI agent framework — a persistent daemon that connects to messaging platforms, routes conversations through LLM providers, and executes tool calls in an agentic loop. No cloud dependencies. No vendor lock-in. Runs on a laptop.
+This release brings battle-tested multi-bot coordination features — sibling awareness, echo loop prevention, and granular channel policies. If you're running multiple agent instances on the same server or Discord guild, this is the upgrade you need.
 
-### Highlights
+### Multi-Bot Coordination
 
-🚀 **Interactive Setup Wizard** — `npx mach6 init` walks you through provider, channels, policies, and generates `mach6.json` + `.env` automatically.
+🤝 **Sibling Bot Awareness** — Configure `siblingBotIds` so your bots recognize each other. Sibling messages pass through the bot filter instead of being silently dropped, enabling inter-agent communication.
 
-🖥 **Cross-Platform** — Windows, Linux, macOS. All paths use `os.tmpdir()` and `os.homedir()`. Zero hardcoded Unix paths. Start scripts for Bash and PowerShell.
+🔄 **Echo Loop Prevention** — 10-second cooldown between processing sibling messages in the same channel. Conversations breathe naturally instead of spiraling into infinite loops.
 
-⚡ **Real-Time Interrupts** — Send "stop" mid-turn and the agent stops immediately. Priority-classified message queue with interrupt bypass, coalescing, and backpressure management.
+🔀 **Session Isolation** — Route keys now use `adapterId` instead of `channelType`, so sibling bots get separate sessions for the same channel. No more session collisions.
 
-🔌 **Multi-Channel** — Discord (discord.js) and WhatsApp (Baileys v7) adapters. HTTP API with SSE streaming. Sibling bot yield for multi-bot setups.
+### Channel Policies
 
-🧠 **4 LLM Providers** — GitHub Copilot (auto-auth via `gh` CLI), Anthropic, OpenAI, and Gladius (local). Hot-swappable mid-session.
+🚫 **Ignored Channels** — `ignoredChannels: string[]` completely blocks specific channels. No processing, no response, no session creation.
 
-🛠 **18 Built-in Tools** — File I/O, shell execution, image analysis, text-to-speech, memory search, process management, messaging, sub-agent spawning.
+🔇 **Strict-Mention Channels** — `strictMentionChannels: string[]` requires an @mention to trigger response, even from owners. Perfect for observation-only channels where the bot should listen but not speak unless called.
 
-🌐 **Web UI** — Built-in chat interface with session management, streaming responses, tool call visualization, and config panel. Single HTML file, no build step.
+### Agent Improvements
 
-🔒 **Production Hardened** — Config validation, context monitoring, tool sandboxing, abort signal propagation, JID normalization, cron budget management, boot sequence validation.
+⚠️ **Graceful Iteration Limits** — When approaching the iteration cap, a warning is injected directly into the LLM context so it can wrap up intelligently instead of hitting a wall mid-thought.
 
-### What's New Since 0.1.0
+🆔 **Message ID Injection** — Each user message now includes `<<message_id=ID>>` metadata, giving the agent the reference it needs for reactions, read receipts, and message deletion.
 
-- Interactive CLI wizard (`mach6 init`)
-- Full Windows/macOS support (cross-platform path resolution)
-- Bash + PowerShell start scripts
-- Cleaned up repository (removed internal dev artifacts)
-- Polished README with comprehensive documentation
-- Updated package.json with proper metadata, keywords, engines
+🔧 **Sub-Agent Default** — Max iterations raised from 15 → 25, giving sub-agents enough room to complete real work.
 
-### Getting Started
+### Security
 
-```bash
-git clone https://github.com/amuzetnoM/mach6.git
-cd mach6
-npm install && npm run build
-npx mach6 init
-node dist/gateway/daemon.js --config=mach6.json
+🛡️ **CVE Fix** — Overrides `undici >=6.23.0` to address GHSA-g9mf-h72j-4rw9 (unbounded decompression chain).
+
+### Configuration
+
+Add sibling bot support to your `mach6.json`:
+
+```json
+{
+  "discord": {
+    "enabled": true,
+    "token": "...",
+    "botId": "YOUR_BOT_ID",
+    "siblingBotIds": ["OTHER_BOT_ID"],
+    "policy": {
+      "ignoredChannels": ["CHANNEL_ID"],
+      "strictMentionChannels": ["CHANNEL_ID"]
+    }
+  }
+}
 ```
 
-### Requirements
+### Upgrade Path
 
-- Node.js 20+
-- npm 9+
+Fully backward compatible. Existing configs work unchanged — new fields are optional.
+
+```bash
+git pull origin master
+npm install && npm run build
+```
 
 ---
 
