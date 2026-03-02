@@ -2,7 +2,7 @@
 
 # ⚡ Mach6
 
-**Production-grade AI agent framework. Single process. Any machine.**
+**AI agent framework. Single process. Any machine.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-green.svg)](https://nodejs.org/)
