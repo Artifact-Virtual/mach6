@@ -3,6 +3,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import type { TemperatureConfig, TaskCategory } from '../agent/temperature.js';
+
 export interface ChannelConfig {
   accountKey?: string;
   countryCode?: string;
@@ -40,6 +42,12 @@ export interface Mach6Config {
   timeouts?: Record<string, number>;
   channels?: Record<string, ChannelConfig>;
   budgets?: Record<string, BudgetConfig>;
+  adaptiveTemperature?: {
+    adaptive?: boolean;
+    profile?: Partial<Record<string, number>>;
+    default?: number;
+    logChanges?: boolean;
+  };
 }
 
 const DEFAULT_CONFIG: Mach6Config = {
@@ -107,3 +115,24 @@ export function loadConfig(configPath?: string): Mach6Config {
 
 // Re-export for validator
 export type { Mach6Config as Mach6ConfigType };
+
+/**
+ * Convert the mach6.json `adaptiveTemperature` (or top-level `temperature` object) block
+ * into a TemperatureConfig for the ATM system.
+ */
+export function toTemperatureConfig(config: Mach6Config): TemperatureConfig {
+  const atm = config.adaptiveTemperature;
+  if (!atm || !atm.adaptive) {
+    return {
+      enabled: false,
+      defaultTemp: config.temperature,
+    };
+  }
+
+  return {
+    enabled: true,
+    profile: atm.profile as Partial<Record<TaskCategory, number>> | undefined,
+    defaultTemp: atm.default ?? config.temperature,
+    logChanges: atm.logChanges ?? false,
+  };
+}

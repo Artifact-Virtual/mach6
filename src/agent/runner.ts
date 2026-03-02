@@ -6,6 +6,8 @@ import { truncateContext } from './context.js';
 import { ContextMonitor } from './context-monitor.js';
 import type { PolicyEngine } from '../tools/policy.js';
 import { sanitizeToolResult, logInjectionAttempt } from '../security/sanitizer.js';
+import { classifyTask, getTemperature } from './temperature.js';
+import type { TemperatureConfig, TaskCategory } from './temperature.js';
 
 /** Minimal interface for tool registries (satisfied by both ToolRegistry and SandboxedToolRegistry) */
 export interface ToolExecutor {
@@ -23,6 +25,7 @@ export interface RunnerConfig {
   sessionId?: string;
   contextMonitor?: ContextMonitor;
   policyEngine?: PolicyEngine;
+  temperatureConfig?: TemperatureConfig;
   abortSignal?: AbortSignal;
   onEvent?: (event: StreamEvent) => void;
   onToolStart?: (name: string, input: Record<string, unknown>) => void;
@@ -34,6 +37,7 @@ export interface RunResult {
   messages: Message[];
   toolCalls: { name: string; input: Record<string, unknown>; result: string }[];
   iterations: number;
+  temperatureHistory?: Array<{ iteration: number; category: TaskCategory; temperature: number }>;
 }
 
 /**
@@ -46,6 +50,8 @@ export async function runAgent(
   const maxIter = config.maxIterations ?? 25;
   const maxCtx = config.maxContextTokens ?? 100_000;
   const allToolCalls: RunResult['toolCalls'] = [];
+  const temperatureHistory: Array<{ iteration: number; category: TaskCategory; temperature: number }> = [];
+  let recentToolNames: string[] = [];
   let currentMessages = [...messages];
   let iterations = 0;
 
@@ -68,6 +74,11 @@ export async function runAgent(
       const iterCheck = config.policyEngine.checkIteration(config.sessionId, iterations);
       if (iterCheck.warning) {
         console.warn(`⚠️  ${iterCheck.warning}`);
+        // Inject warning into context so the LLM can react and wrap up gracefully
+        currentMessages.push({
+          role: 'user',
+          content: `⚠️ SYSTEM WARNING: ${iterCheck.warning}. Wrap up NOW — provide your best result immediately. Do not start new work.`,
+        });
       }
       if (!iterCheck.ok) {
         return {
@@ -75,6 +86,7 @@ export async function runAgent(
           messages: currentMessages,
           toolCalls: allToolCalls,
           iterations,
+          temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined,
         };
       }
     }
@@ -82,11 +94,25 @@ export async function runAgent(
     // Truncate context if needed
     const truncated = truncateContext(currentMessages, maxCtx);
 
+    // Adaptive Temperature Modulation (ATM): classify task and adjust temperature
+    let effectiveProviderConfig = config.providerConfig;
+    if (config.temperatureConfig?.enabled) {
+      const category = classifyTask(truncated, recentToolNames);
+      const temp = getTemperature(category, config.temperatureConfig);
+      temperatureHistory.push({ iteration: iterations, category, temperature: temp });
+
+      if (config.temperatureConfig.logChanges) {
+        console.log(`[ATM] Iteration ${iterations}: ${category} → temp=${temp}`);
+      }
+
+      effectiveProviderConfig = { ...config.providerConfig, temperature: temp };
+    }
+
     // Stream from LLM
     const tools = config.toolRegistry.toProviderFormat();
     console.log(`[runner] Iteration ${iterations}/${maxIter}: ${truncated.length} messages, calling LLM...`);
     const streamStartTime = Date.now();
-    const stream = config.provider.stream(truncated, tools, config.providerConfig);
+    const stream = config.provider.stream(truncated, tools, effectiveProviderConfig);
 
     // Collect response
     let textAccum = '';
@@ -151,7 +177,7 @@ export async function runAgent(
     // If no tool calls, we're done
     if (pendingToolCalls.length === 0) {
       console.log(`[runner] Agent complete after ${iterations} iterations, ${allToolCalls.length} total tool calls`);
-      return { text: textAccum, messages: currentMessages, toolCalls: allToolCalls, iterations };
+      return { text: textAccum, messages: currentMessages, toolCalls: allToolCalls, iterations, temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined };
     }
 
     // Append assistant message with tool calls
@@ -203,6 +229,9 @@ export async function runAgent(
       });
     }
 
+    // Track recent tool names for ATM classification in next iteration
+    recentToolNames = pendingToolCalls.map(tc => tc.name);
+
     // Check abort after tool execution before next LLM call
     if (config.abortSignal?.aborted) {
       const reason = config.abortSignal.reason ?? 'aborted';
@@ -219,5 +248,6 @@ export async function runAgent(
     messages: currentMessages,
     toolCalls: allToolCalls,
     iterations,
+    temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined,
   };
 }
