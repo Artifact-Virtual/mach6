@@ -1,6 +1,7 @@
 // Mach6 — Config loading
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import type { TemperatureConfig, TaskCategory } from '../agent/temperature.js';
@@ -93,7 +94,7 @@ export function loadConfig(configPath?: string): Mach6Config {
     ? [configPath]
     : [
         path.join(process.cwd(), 'mach6.json'),
-        path.join(process.env.HOME ?? '', '.mach6', 'config.json'),
+        path.join(os.homedir(), '.mach6', 'config.json'),
       ];
 
   for (const p of tryPaths) {

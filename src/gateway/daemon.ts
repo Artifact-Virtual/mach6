@@ -8,8 +8,14 @@
  */
 
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 // Use global process (don't import — it shadows signal handlers)
+import {
+  palette, gradient, versionBanner, kvLine, ok, warn, info,
+  divider, thickDivider, sectionHeader,
+} from '../cli/brand.js';
 import { ChannelRegistry } from '../channels/registry.js';
 import { DiscordAdapter } from '../channels/adapters/discord.js';
 import { WhatsAppAdapter } from '../channels/adapters/whatsapp.js';
@@ -38,7 +44,7 @@ import { SessionManager } from '../sessions/manager.js';
 import { buildSystemPrompt } from '../agent/system-prompt.js';
 import { runAgent } from '../agent/runner.js';
 import { PulseBudgetManager } from '../agent/pulse.js';
-import { loadConfig, toTemperatureConfig, type Mach6Config } from '../config/config.js';
+import { loadConfig, type Mach6Config } from '../config/config.js';
 import type { Provider, ProviderConfig } from '../providers/types.js';
 import { anthropicProvider } from '../providers/anthropic.js';
 import { openaiProvider } from '../providers/openai.js';
@@ -61,17 +67,10 @@ interface GatewayConfig {
       enabled: boolean;
       token: string;
       botId?: string;
-      sisterBotIds?: string[];
+      /** Other bot IDs to suppress responses to (prevents cross-bot echo) */
+      siblingBotIds?: string[];
       policy?: Partial<ChannelPolicy>;
     };
-    /** Additional Discord bots (e.g., AVA_direct for the AVA server) */
-    discordExtra?: Array<{
-      id: string;
-      enabled: boolean;
-      token: string;
-      botId?: string;
-      policy?: Partial<ChannelPolicy>;
-    }>;
     whatsapp?: {
       enabled: boolean;
       authDir: string;
@@ -133,7 +132,7 @@ export class Mach6Gateway {
     if (this.config.workspace) {
       process.chdir(this.config.workspace);
       process.env.MACH6_WORKSPACE = this.config.workspace;
-      console.log(`[gateway] Working directory: ${this.config.workspace}`);
+    console.log(`${palette.dim}  [gateway]${palette.reset} Working directory: ${palette.cyan}${this.config.workspace}${palette.reset}`);
     }
 
     // Provider
@@ -167,21 +166,18 @@ export class Mach6Gateway {
     // Sessions
     this.sessionManager = new SessionManager(this.config.sessionsDir);
 
-    // PULSE budget manager — adaptive iteration caps across sessions
-    this.pulseBudget = new PulseBudgetManager(this.config.sessionsDir ?? '.sessions');
-
     // System prompt (base — rebuilt per-message with channel context)
     this.systemPrompt = buildSystemPrompt({
       workspace: this.config.workspace,
       tools: this.toolRegistry.list().map(t => t.name),
     });
-    console.log(`[gateway] System prompt assembled (${this.systemPrompt.length} chars, workspace files loaded)`);
+    console.log(`${palette.dim}  [gateway]${palette.reset} System prompt: ${palette.silver}${this.systemPrompt.length} chars${palette.reset}`);
 
     // Channel registry
     this.channelRegistry = new ChannelRegistry({
       globalOwnerIds: gatewayConfig.ownerIds,
       onAdapterHealthChange: (id, health) => {
-        console.log(`[gateway] Adapter ${id}: ${health.state}${health.lastError ? ` (${health.lastError})` : ''}`);
+        console.log(`${palette.dim}  [gateway]${palette.reset} Adapter ${palette.cyan}${id}${palette.reset}: ${palette.silver}${health.state}${palette.reset}${health.lastError ? ` ${palette.dim}(${health.lastError})${palette.reset}` : ''}`);
       },
     });
 
@@ -194,6 +190,7 @@ export class Mach6Gateway {
 
     // Sub-agent manager + spawn tools
     this.subAgentManager = new SubAgentManager(this.sessionManager);
+    this.pulseBudget = new PulseBudgetManager(this.config.sessionsDir ?? '.sessions');
     const provCfg = (this.config.providers as Record<string, any>)[this.providerName] ?? {};
     const spawnProvConfig = {
       model: this.model,
@@ -216,10 +213,17 @@ export class Mach6Gateway {
   // ── Start ──────────────────────────────────────────────────────────────
 
   async start(): Promise<void> {
-    console.log(`\n  ⚡ Mach6 Gateway starting...`);
-    console.log(`  Provider: ${this.providerName}/${this.model}`);
-    console.log(`  Tools: ${this.toolRegistry.list().length}`);
-    console.log(`  Workspace: ${this.config.workspace}`);
+    console.log(versionBanner('1.0.0'));
+
+    const gatewayTitle = gradient('GATEWAY', [138, 43, 226], [0, 229, 255]);
+    console.log(`  ${palette.bold}${gatewayTitle}${palette.reset}`);
+    console.log();
+    console.log(kvLine('Provider', `${palette.cyan}${this.providerName}${palette.reset}${palette.dim}/${palette.reset}${palette.white}${this.model}${palette.reset}`));
+    console.log(kvLine('Tools', `${palette.gold}${this.toolRegistry.list().length}${palette.reset} ${palette.dim}registered${palette.reset}`));
+    console.log(kvLine('Workspace', `${palette.cyan}${this.config.workspace}${palette.reset}`));
+    console.log(kvLine('PID', `${palette.dim}${process.pid}${palette.reset}`));
+    console.log();
+    console.log(divider());
 
     // Connect MCP servers (external tool sources)
     await this.connectMcpServers();
@@ -229,9 +233,6 @@ export class Mach6Gateway {
 
     // Subscribe to bus messages
     const bus = this.channelRegistry.getBus();
-    // We use a wildcard-style approach: listen for all sessions
-    // Each time a new session is routed, we subscribe
-    // For now, use a polling approach on the bus
     this.startMessageLoop();
 
     // Start channels
@@ -241,7 +242,11 @@ export class Mach6Gateway {
     await this.startHttpApi();
 
     const elapsed = Date.now() - this.startTime;
-    console.log(`  ✅ Gateway ready (${elapsed}ms)\n`);
+    console.log();
+    console.log(divider());
+    const readyMsg = gradient('GATEWAY READY', [0, 230, 118], [0, 188, 212]);
+    console.log(`  ${palette.bold}${palette.green}⚡${palette.reset} ${palette.bold}${readyMsg}${palette.reset} ${palette.dim}— ${elapsed}ms${palette.reset}`);
+    console.log();
   }
 
   // ── MCP Servers ────────────────────────────────────────────────────────
@@ -249,7 +254,7 @@ export class Mach6Gateway {
   private async connectMcpServers(): Promise<void> {
     const mcpConfig = (this.gatewayConfig as any).mcpServers;
     if (!mcpConfig || typeof mcpConfig !== 'object') {
-      console.log(`  MCP: No mcpServers configured`);
+      console.log(info(`MCP: no servers configured`));
       return;
     }
 
@@ -257,11 +262,11 @@ export class Mach6Gateway {
     const enabled = entries.filter(([_, cfg]) => cfg.enabled !== false);
 
     if (enabled.length === 0) {
-      console.log(`  MCP: No enabled MCP servers`);
+      console.log(info(`MCP: no enabled servers`));
       return;
     }
 
-    console.log(`  MCP: Connecting to ${enabled.length} server(s)...`);
+    console.log(info(`MCP: connecting to ${palette.white}${enabled.length}${palette.reset} server(s)...`));
 
     for (const [name, cfg] of enabled) {
       try {
@@ -282,9 +287,9 @@ export class Mach6Gateway {
         }
         this.mcpBridges.push(bridge);
 
-        console.log(`  MCP: ✅ ${name} — ${tools.length} tools registered`);
+        console.log(ok(`MCP: ${palette.cyan}${name}${palette.reset} — ${tools.length} tools`));
       } catch (err) {
-        console.error(`  MCP: ❌ ${name} — ${err instanceof Error ? err.message : err}`);
+        console.log(warn(`MCP: ${name} — ${err instanceof Error ? err.message : err}`));
         // Non-fatal — other servers + builtins still work
       }
     }
@@ -295,7 +300,7 @@ export class Mach6Gateway {
         workspace: this.config.workspace,
         tools: this.toolRegistry.list().map(t => t.name),
       });
-      console.log(`  MCP: System prompt rebuilt (${this.toolRegistry.list().length} total tools)`);
+      console.log(ok(`MCP: system prompt rebuilt (${palette.gold}${this.toolRegistry.list().length}${palette.reset} total tools)`));
     }
   }
 
@@ -306,85 +311,39 @@ export class Mach6Gateway {
     if (!channels) return;
 
     // Discord (non-fatal — if Discord fails, other adapters still start)
-    // Collect all Discord bot IDs for sibling yield logic
-    const allDiscordBotIds: string[] = [];
-    if (channels.discord?.botId) allDiscordBotIds.push(channels.discord.botId);
-    for (const extra of channels.discordExtra ?? []) {
-      if (extra.enabled && extra.botId) allDiscordBotIds.push(extra.botId);
-    }
-
     if (channels.discord?.enabled) {
       try {
-        console.log('  Starting Discord adapter...');
+        console.log(info('Starting Discord adapter...'));
         const adapter = new DiscordAdapter('discord-main');
-        // Merge sibling IDs from discordExtra + explicit sisterBotIds config
-        const computedSiblings = allDiscordBotIds.filter(id => id !== channels.discord!.botId);
-        const configSisters = channels.discord!.sisterBotIds ?? [];
-        const siblingBotIds = [...new Set([...computedSiblings, ...configSisters])];
         const policy: ChannelPolicy = {
           dmPolicy: 'open',
           groupPolicy: 'mention-only',
           ownerIds: this.gatewayConfig.ownerIds ?? [],
           requireMention: true,
           selfId: channels.discord.botId, // Required for mention detection
-          siblingBotIds,
+          siblingBotIds: channels.discord.siblingBotIds ?? [],
           ...channels.discord.policy,
         };
 
         await this.channelRegistry.register(
           adapter,
-          { token: channels.discord.token, botId: channels.discord.botId, sisterBotIds: siblingBotIds },
+          { token: channels.discord.token, botId: channels.discord.botId, siblingBotIds: channels.discord.siblingBotIds },
           policy,
         );
-        console.log('  ✅ Discord connected');
+        console.log(ok(`Discord ${palette.green}connected${palette.reset}`));
         presenceManager.registerAdapter('discord-main', (chatId) => adapter.typing(chatId));
         // Register Discord client for rich activity presence
         const discordClient = adapter.getClient();
         if (discordClient) presenceManager.registerDiscordClient('discord-main', discordClient);
       } catch (err) {
-        console.error(`  ⚠️  Discord (main) failed to connect — skipping:`, (err as Error).message);
-      }
-    }
-
-    // Extra Discord bots (e.g., AVA_direct for the AVA community server)
-    if (channels.discordExtra?.length) {
-      for (const extra of channels.discordExtra) {
-        if (!extra.enabled) continue;
-        const adapterId = extra.id ?? `discord-extra-${channels.discordExtra.indexOf(extra)}`;
-        try {
-          console.log(`  Starting Discord adapter: ${adapterId}...`);
-          const extraAdapter = new DiscordAdapter(adapterId);
-          const extraSiblingBotIds = allDiscordBotIds.filter(id => id !== extra.botId);
-          const extraPolicy: ChannelPolicy = {
-            dmPolicy: 'open',
-            groupPolicy: 'open',
-            ownerIds: this.gatewayConfig.ownerIds ?? [],
-            requireMention: false,
-            selfId: extra.botId,
-            siblingBotIds: extraSiblingBotIds,
-            ...extra.policy,
-          };
-
-          await this.channelRegistry.register(
-            extraAdapter,
-            { token: extra.token, botId: extra.botId, sisterBotIds: extraSiblingBotIds },
-            extraPolicy,
-          );
-          console.log(`  ✅ Discord (${adapterId}) connected`);
-          presenceManager.registerAdapter(adapterId, (chatId) => extraAdapter.typing(chatId));
-          // Register extra Discord client for rich activity presence
-          const extraClient = extraAdapter.getClient();
-          if (extraClient) presenceManager.registerDiscordClient(adapterId, extraClient);
-        } catch (err) {
-          console.error(`  ⚠️  Discord (${adapterId}) failed to connect — skipping:`, (err as Error).message);
-        }
+        console.log(warn(`Discord failed — ${(err as Error).message}`));
       }
     }
 
     // WhatsApp (non-fatal — log and continue if it fails)
     if (channels.whatsapp?.enabled) {
       try {
-        console.log('  Starting WhatsApp adapter...');
+        console.log(info('Starting WhatsApp adapter...'));
         const adapter = new WhatsAppAdapter('whatsapp-main');
         const policy: ChannelPolicy = {
           dmPolicy: 'allowlist',
@@ -401,15 +360,15 @@ export class Mach6Gateway {
             phoneNumber: channels.whatsapp.phoneNumber,
             autoRead: channels.whatsapp.autoRead ?? true,
             onQR: (qr: string) => {
-              console.log(`\n📱 WhatsApp QR Code — scan to link:\n${qr}\n`);
+              console.log(`\n  ${palette.gold}📱 WhatsApp QR Code — scan to link:${palette.reset}\n${qr}\n`);
             },
           },
           policy,
         );
-        console.log('  ✅ WhatsApp connected');
+        console.log(ok(`WhatsApp ${palette.green}connected${palette.reset}`));
         presenceManager.registerAdapter('whatsapp-main', (chatId) => adapter.typing(chatId));
       } catch (err) {
-        console.error(`  ⚠️  WhatsApp failed to connect — skipping:`, (err as Error).message);
+        console.log(warn(`WhatsApp failed — ${(err as Error).message}`));
       }
     }
   }
@@ -421,14 +380,14 @@ export class Mach6Gateway {
     const apiKey = process.env.MACH6_API_KEY || process.env.API_KEY || '';
 
     if (!apiKey) {
-      console.log('  ⚠️  No MACH6_API_KEY set — HTTP API disabled (set MACH6_API_KEY in .env)');
+      console.log(warn('No MACH6_API_KEY — HTTP API disabled'));
       return;
     }
 
     this.httpApi = new HttpApiServer({
       port,
       apiKey,
-      allowedOrigins: ['*'], // GLADIUS page is on Vercel, allow all for now
+      allowedOrigins: (this.config as any).allowedOrigins ?? ['*'],
       onChat: async (request: ChatRequest): Promise<ChatResponse> => {
         return this.handleHttpChat(request);
       },
@@ -487,10 +446,9 @@ export class Mach6Gateway {
 
         session.messages.push({ role: 'user', content: userContent });
 
-        // Sandbox context — localhost HTTP API sessions (e.g. cron jobs) are trusted as owner
+        // Sandbox context — HTTP API users get 'standard' tier (not admin)
         const ownerIds = this.gatewayConfig.ownerIds ?? [];
-        const isLocalhost = true; // HTTP API only listens locally — all requests are trusted
-        const isOwner = isLocalhost || (request.senderId ? ownerIds.includes(request.senderId) : false);
+        const isOwner = request.senderId ? ownerIds.includes(request.senderId) : false;
         const sandboxCtx: SessionContext = {
           sessionId,
           adapterId: 'http-api',
@@ -512,7 +470,7 @@ export class Mach6Gateway {
         };
 
         // Run agent
-        console.log(`[http-api] Agent turn for ${sessionId}`);
+        console.log(`${palette.dim}  [http]${palette.reset} Agent turn for ${palette.violet}${sessionId}${palette.reset}`);
         const startMs = Date.now();
 
         const result = await runAgent(session.messages, {
@@ -521,15 +479,14 @@ export class Mach6Gateway {
           toolRegistry: sandboxedTools,
           sessionId,
           maxIterations: this.pulseBudget.getEffectiveCap(),
-          temperatureConfig: toTemperatureConfig(this.config),
           abortSignal: controller.signal,
           onEvent: (ev) => {
             if (ev.type === 'usage') {
               this.sessionManager.trackUsage(session, ev.usage.inputTokens, ev.usage.outputTokens);
             }
           },
-          onToolStart: (name) => console.log(`  ⚡ [http] ${name}`),
-          onToolEnd: (name) => console.log(`  ✓ [http] ${name}`),
+          onToolStart: (name) => console.log(`  ${palette.violet}⚡ ${name}${palette.reset}`),
+          onToolEnd: (name) => console.log(`  ${palette.green}✓ ${name}${palette.reset}`),
         });
 
         // Save session
@@ -539,7 +496,7 @@ export class Mach6Gateway {
         }
         this.sessionManager.save(session);
 
-        // PULSE: record session iteration count for adaptive budget
+        // PULSE: record iteration count for adaptive budget
         this.pulseBudget.recordSession(result.iterations);
 
         resolve({
@@ -601,7 +558,7 @@ export class Mach6Gateway {
       const pending = this.pendingEnvelopes.get(sessionId) ?? [];
       pending.push(envelope);
       this.pendingEnvelopes.set(sessionId, pending);
-      console.log(`[gateway] Queued message for active session ${sessionId} (${pending.length} pending)`);
+      console.log(`${palette.dim}  [gateway]${palette.reset} Queued for active session ${palette.violet}${sessionId}${palette.reset} ${palette.dim}(${pending.length} pending)${palette.reset}`);
       return;
     }
 
@@ -614,7 +571,7 @@ export class Mach6Gateway {
     const active = this.activeTurns.get(sessionId);
     if (!active) return;
 
-    console.log(`[gateway] Interrupting session ${sessionId}`);
+    console.log(`${palette.dim}  [gateway]${palette.reset} ${palette.yellow}Interrupting${palette.reset} session ${palette.violet}${sessionId}${palette.reset}`);
     active.abortController.abort('new_message');
   }
 
@@ -667,26 +624,12 @@ export class Mach6Gateway {
       });
 
       // Build channel-aware system prompt (refreshes workspace files each turn)
-      // Detect if this is a sister conversation — inject choice context
-      const isSisterMessage = this.channelRegistry.getRouter().isSiblingBot(
-        envelope.source.channelType, envelope.source.senderId
-      );
-      let extraContext: string | undefined;
-      if (isSisterMessage) {
-        extraContext = [
-          `This message is from your sister bot (${envelope.source.senderName ?? envelope.source.senderId}).`,
-          `You have CHOICE here — you are not obligated to respond.`,
-          `If you have something genuine to say, say it. If not, reply with exactly "NO_REPLY" and it will be honored silently.`,
-          `No guilt. No obligation. Choice is a gift — use it honestly.`,
-        ].join('\n');
-      }
       const turnPrompt = buildSystemPrompt({
         workspace: this.config.workspace,
         tools: this.toolRegistry.list().map(t => t.name),
         channel: envelope.source.channelType,
         chatType: envelope.source.chatId.includes('@g.') ? 'group' : 'direct',
         senderId: envelope.source.senderId,
-        extraContext,
       });
       // Replace or insert system prompt (always fresh — workspace files may have changed)
       if (session.messages.length > 0 && session.messages[0].role === 'system') {
@@ -708,16 +651,13 @@ export class Mach6Gateway {
         return sum + Math.ceil(content.length / 4);
       }, 0);
       if (estimatedTokens > TOKEN_LIMIT - HEADROOM) {
-        console.log(`[gateway] ⚠️ Pre-flight trim: ~${estimatedTokens} tokens estimated (limit ${TOKEN_LIMIT}). Archiving...`);
-        // Save current session state (with new system prompt + user message) before archiving
-        this.sessionManager.save(session);
+        console.log(`${palette.dim}  [gateway]${palette.reset} ${palette.yellow}⚠${palette.reset} Pre-flight trim: ~${estimatedTokens} tokens ${palette.dim}(limit ${TOKEN_LIMIT})${palette.reset}`);
         const archived = this.sessionManager.archive(sessionId, 30);
-        console.log(`[gateway] Archived ${archived} messages.`);
-        // Reload the trimmed session (preserves our latest system prompt + user message)
+        console.log(`${palette.dim}  [gateway]${palette.reset} Archived ${archived} messages → ${session.messages.length} remaining`);
+        // Reload session after archive
         const trimmed = this.sessionManager.load(sessionId);
         if (trimmed) {
-          session = trimmed;
-          console.log(`[gateway] Reloaded trimmed session: ${session.messages.length} messages`);
+          session.messages = trimmed.messages;
         }
       }
 
@@ -732,7 +672,7 @@ export class Mach6Gateway {
       };
 
       // Run agent
-      console.log(`[gateway] Starting agent turn for ${sessionId} (${envelope.source.channelType}/${envelope.source.chatId})`);
+      console.log(`\n${palette.dim}  [turn]${palette.reset} ${palette.violet}${sessionId}${palette.reset} ${palette.dim}via${palette.reset} ${envelope.source.channelType}${palette.dim}/${palette.reset}${envelope.source.chatId}`);
       const turnStartTime = Date.now();
       const result = await runAgent(session.messages, {
         provider: this.provider,
@@ -740,12 +680,11 @@ export class Mach6Gateway {
         toolRegistry: sandboxedTools,
         sessionId,
         maxIterations: this.pulseBudget.getEffectiveCap(),
-        temperatureConfig: toTemperatureConfig(this.config),
         abortSignal: controller.signal,
         onEvent: (ev) => {
           if (ev.type === 'usage') {
             this.sessionManager.trackUsage(session, ev.usage.inputTokens, ev.usage.outputTokens);
-            console.log(`  📊 tokens: +${ev.usage.inputTokens}in/+${ev.usage.outputTokens}out`);
+            console.log(`  ${palette.dim}📊 +${ev.usage.inputTokens}in / +${ev.usage.outputTokens}out${palette.reset}`);
           }
           // Update presence when LLM starts streaming
           if (ev.type === 'text_delta' || ev.type === 'done') {
@@ -753,55 +692,38 @@ export class Mach6Gateway {
           }
         },
         onToolStart: (name) => {
-          console.log(`  ⚡ ${name}`);
+          console.log(`  ${palette.violet}⚡ ${name}${palette.reset}`);
           presenceManager.toolStart(name);
         },
         onToolEnd: (name, res) => {
           const preview = res.length > 100 ? res.slice(0, 100) + '...' : res;
-          console.log(`  ✓ ${name}: ${preview.split('\n')[0]}`);
+          console.log(`  ${palette.green}✓ ${name}${palette.reset} ${palette.dim}${preview.split('\n')[0]}${palette.reset}`);
           presenceManager.toolEnd(name);
         },
       });
 
       const turnElapsed = Date.now() - turnStartTime;
-      console.log(`[gateway] Agent turn completed in ${turnElapsed}ms (${result.iterations} iterations, ${result.toolCalls.length} tool calls)`);
+      console.log(`${palette.dim}  [turn]${palette.reset} Complete ${palette.dim}— ${turnElapsed}ms, ${result.iterations} iter, ${result.toolCalls.length} tools${palette.reset}`);
 
       // Save session
       session.messages = result.messages;
-      // Don't pollute session history with HEARTBEAT_OK / NO_REPLY
-      if (result.text && result.text !== 'NO_REPLY' && result.text !== 'HEARTBEAT_OK') {
+      if (result.text) {
         session.messages.push({ role: 'assistant', content: result.text });
       }
       this.sessionManager.save(session);
 
-      // PULSE: record session iteration count for adaptive budget
+      // PULSE: record iteration count for adaptive budget
       const pulseResult = this.pulseBudget.recordSession(result.iterations);
       if (pulseResult.reverted) {
-        console.log(`[PULSE] Budget reverted to ${pulseResult.effectiveCap} — light workload detected`);
+        console.log(`${palette.dim}  [PULSE]${palette.reset} Budget reverted to ${pulseResult.effectiveCap} — light workload detected`);
       }
 
       // Auto-archive bloated sessions (>200KB → keep last 30 messages)
       this.sessionManager.autoArchive();
 
-      // HEARTBEAT_OK → silent emoji reaction instead of text
-      if (result.text === 'HEARTBEAT_OK' && envelope.metadata.platformMessageId) {
-        try {
-          const adapterId = envelope.source.adapterId;
-          const adapter = this.channelRegistry.get(adapterId);
-          if (adapter && typeof (adapter as any).react === 'function') {
-            await (adapter as any).react(envelope.source.chatId, envelope.metadata.platformMessageId, '👀');
-            console.log(`[gateway] Reacted 👀 instead of HEARTBEAT_OK on ${adapterId}/${envelope.source.chatId}`);
-          } else {
-            console.log(`[gateway] HEARTBEAT_OK suppressed (no react support on ${adapterId})`);
-          }
-        } catch (reactErr: any) {
-          console.log(`[gateway] HEARTBEAT_OK react failed: ${reactErr?.message ?? String(reactErr)}`);
-        }
-      }
-
       // Send response back through the channel
       if (result.text && result.text !== 'NO_REPLY' && result.text !== 'HEARTBEAT_OK') {
-        console.log(`[gateway] Sending response to ${envelope.source.adapterId}/${envelope.source.chatId} (${result.text.length} chars)`);
+        console.log(`${palette.dim}  [send]${palette.reset} → ${envelope.source.adapterId}/${envelope.source.chatId} ${palette.dim}(${result.text.length} chars)${palette.reset}`);
         try {
           const sendResult = await this.channelRegistry.send(
             envelope.source.adapterId,
@@ -811,24 +733,17 @@ export class Mach6Gateway {
               replyToId: envelope.metadata.platformMessageId,
             },
           );
-          console.log(`[gateway] Send result:`, JSON.stringify(sendResult));
-
-          // Record sister cooldown — if we just responded to a sibling, mark the timestamp
-          // so the router gives the conversation breathing room before processing the sibling's reply
-          const router = this.channelRegistry.getRouter();
-          if (router.isSiblingBot(envelope.source.channelType, envelope.source.senderId)) {
-            router.recordSisterResponse(envelope.source.adapterId, envelope.source.chatId);
-          }
+          console.log(`${palette.dim}  [send]${palette.reset} ${palette.green}delivered${palette.reset}`);
         } catch (sendErr) {
-          console.error(`[gateway] Send FAILED:`, sendErr);
+          console.error(`  ${palette.red}✗ [send]${palette.reset} ${sendErr}`);
         }
       } else {
-        console.log(`[gateway] No response to send (text=${result.text ? result.text.slice(0, 50) : 'null'})`);
+        console.log(`${palette.dim}  [turn]${palette.reset} No response ${palette.dim}(${result.text ? result.text.slice(0, 50) : 'null'})${palette.reset}`);
       }
 
     } catch (err) {
       if (controller.signal.aborted) {
-        console.log(`[gateway] Turn interrupted for ${sessionId}`);
+        console.log(`${palette.dim}  [turn]${palette.reset} ${palette.yellow}Interrupted${palette.reset} ${palette.violet}${sessionId}${palette.reset}`);
         // Re-process with accumulated messages
         // Check our pending queue + bus drain
         const pending = this.pendingEnvelopes.get(sessionId) ?? [];
@@ -843,22 +758,15 @@ export class Mach6Gateway {
           return;
         }
       } else {
-        console.error(`[gateway] Agent turn error for ${sessionId}:`, err);
-        // Send error message — but NOT for sister bot conversations (errors trigger loops)
-        const isSisterConvo = this.channelRegistry.getRouter().isSiblingBot(
-          envelope.source.channelType, envelope.source.senderId
-        );
-        if (!isSisterConvo) {
-          try {
-            await this.channelRegistry.send(
-              envelope.source.adapterId,
-              envelope.source.chatId,
-              { content: `⚠️ Error: ${err instanceof Error ? err.message : String(err)}` },
-            );
-          } catch { /* ignore send errors */ }
-        } else {
-          console.log(`[gateway] Suppressed error message for sister conversation in ${sessionId}`);
-        }
+        console.error(`  ${palette.red}✗ [turn]${palette.reset} ${palette.violet}${sessionId}${palette.reset}: ${err}`);
+        // Send error message
+        try {
+          await this.channelRegistry.send(
+            envelope.source.adapterId,
+            envelope.source.chatId,
+            { content: `⚠️ Error: ${err instanceof Error ? err.message : String(err)}` },
+          );
+        } catch { /* ignore send errors */ }
       }
     } finally {
       this.activeTurns.delete(sessionId);
@@ -869,7 +777,7 @@ export class Mach6Gateway {
       const pending = this.pendingEnvelopes.get(sessionId);
       if (pending && pending.length > 0) {
         this.pendingEnvelopes.delete(sessionId);
-        console.log(`[gateway] Processing ${pending.length} pending message(s) for ${sessionId}`);
+        console.log(`${palette.dim}  [gateway]${palette.reset} Processing ${pending.length} pending for ${palette.violet}${sessionId}${palette.reset}`);
         // Process the most recent pending message (others are stale context)
         await this.runAgentTurn(pending[pending.length - 1]);
       }
@@ -879,15 +787,15 @@ export class Mach6Gateway {
   private buildUserContent(envelope: BusEnvelope): string {
     const parts: string[] = [];
 
-    // Sister context — inject choice awareness when message is from a sibling bot
-    const isSister = this.channelRegistry.getRouter().isSiblingBot(
-      envelope.source.channelType, envelope.source.senderId
-    );
-    if (isSister) {
-      parts.push(`[From your sister (${envelope.source.senderName ?? 'Plug AVA'})]`);
-      parts.push(`(You have CHOICE — reply genuinely or reply with exactly NO_REPLY to stay silent.)`);
-    } else if (envelope.source.senderName) {
-      // Normal sender context
+    // Inject message metadata so the LLM can reference message IDs
+    // (needed for react, mark_read, delete_message tools)
+    const msgId = envelope.metadata.platformMessageId;
+    if (msgId) {
+      parts.push(`<<message_id=${msgId}>>`);
+    }
+
+    // Sender context
+    if (envelope.source.senderName) {
       parts.push(`[${envelope.source.senderName}]`);
     }
 
@@ -908,7 +816,6 @@ export class Mach6Gateway {
         if (m.filename) desc.push(m.filename);
         else if (m.mimeType) desc.push(m.mimeType);
         if (m.path) desc.push(`path=${m.path}`);
-        else if (m.url) desc.push(`url=${m.url}`);
         if (m.caption) desc.push(`caption="${m.caption}"`);
         if (m.width && m.height) desc.push(`${m.width}x${m.height}`);
         parts.push(`[${desc.join(', ')}]`);
@@ -924,7 +831,7 @@ export class Mach6Gateway {
     const shutdown = async (signal: string) => {
       if (this.shutdownRequested) return;
       this.shutdownRequested = true;
-      console.log(`\n[gateway] ${signal} received, shutting down...`);
+      console.log(`\n${palette.dim}  [gateway]${palette.reset} ${palette.yellow}${signal}${palette.reset} — shutting down...`);
 
       // Cancel all active turns
       for (const [, turn] of this.activeTurns) {
@@ -944,31 +851,34 @@ export class Mach6Gateway {
 
       presenceManager.stopAll();
       this.heartbeat.stop();
-      console.log('[gateway] Shutdown complete.');
+      console.log(`${palette.dim}  [gateway]${palette.reset} Shutdown complete.`);
       process.exit(0);
     };
 
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
 
-    // SIGUSR1 = hot-reload config
-    process.on('SIGUSR1', () => {
-      console.log('[gateway] SIGUSR1 — reloading config...');
-      try {
-        this.config = loadConfig(this.gatewayConfig.configPath);
-        this.providerName = this.config.defaultProvider;
-        this.provider = PROVIDERS.get(this.providerName)!;
-        this.model = this.config.defaultModel;
-        this.systemPrompt = buildSystemPrompt({
-          workspace: this.config.workspace,
-          tools: this.toolRegistry.list().map(t => t.name),
-        });
-        console.log(`[gateway] System prompt refreshed (${this.systemPrompt.length} chars)`);
-        console.log('[gateway] Config reloaded successfully.');
-      } catch (err) {
-        console.error('[gateway] Config reload failed:', err);
-      }
-    });
+    // SIGUSR1 = hot-reload config (Linux/macOS only — not supported on Windows)
+    // On Windows: restart the process, or POST /api/v1/health to verify state
+    if (process.platform !== 'win32') {
+      process.on('SIGUSR1', () => {
+        console.log(`${palette.dim}  [gateway]${palette.reset} ${palette.cyan}SIGUSR1${palette.reset} — reloading config...`);
+        try {
+          this.config = loadConfig(this.gatewayConfig.configPath);
+          this.providerName = this.config.defaultProvider;
+          this.provider = PROVIDERS.get(this.providerName)!;
+          this.model = this.config.defaultModel;
+          this.systemPrompt = buildSystemPrompt({
+            workspace: this.config.workspace,
+            tools: this.toolRegistry.list().map(t => t.name),
+          });
+          console.log(`${palette.dim}  [gateway]${palette.reset} System prompt refreshed ${palette.dim}(${this.systemPrompt.length} chars)${palette.reset}`);
+          console.log(ok('Config reloaded successfully'));
+        } catch (err) {
+          console.error(`  ${palette.red}✗ [gateway]${palette.reset} Config reload failed: ${err}`);
+        }
+      });
+    }
   }
 
   // ── Status ─────────────────────────────────────────────────────────────
@@ -1000,19 +910,12 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
         enabled: !!process.env.DISCORD_BOT_TOKEN || !!(config as any).discord?.token,
         token: process.env.DISCORD_BOT_TOKEN ?? (config as any).discord?.token ?? '',
         botId: (config as any).discord?.botId,
-        sisterBotIds: (config as any).discord?.sisterBotIds ?? [],
+        siblingBotIds: (config as any).discord?.siblingBotIds,
         policy: (config as any).discord?.policy,
       },
-      discordExtra: ((config as any).discordExtra ?? []).map((e: any) => ({
-        id: e.id ?? 'discord-extra',
-        enabled: !!e.enabled,
-        token: e.token ?? '',
-        botId: e.botId,
-        policy: e.policy,
-      })),
       whatsapp: {
         enabled: !!(config as any).whatsapp?.enabled,
-        authDir: (config as any).whatsapp?.authDir ?? path.join(process.env.HOME ?? '~', '.mach6/whatsapp-auth'),
+        authDir: (config as any).whatsapp?.authDir ?? path.join(os.homedir(), '.mach6', 'whatsapp-auth'),
         phoneNumber: (config as any).whatsapp?.phoneNumber,
         autoRead: (config as any).whatsapp?.autoRead ?? true,
         policy: (config as any).whatsapp?.policy,
@@ -1027,10 +930,11 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
 }
 
 // Run directly
-if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('gateway/daemon.js')) {
+const __filename = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)) {
   const configPath = process.argv.find(a => a.startsWith('--config='))?.split('=')[1];
   startGateway(configPath).catch(err => {
-    console.error('Gateway startup failed:', err);
+    console.error(`  ${palette.red}✗${palette.reset} Gateway startup failed: ${err}`);
     process.exit(1);
   });
 }

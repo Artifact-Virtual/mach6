@@ -20,6 +20,8 @@ import { githubCopilotProvider } from '../providers/github-copilot.js';
 import type { ProviderConfig, Message } from '../providers/types.js';
 import type { BusEnvelope } from '../channels/types.js';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const PASS = '✅';
 const FAIL = '❌';
@@ -47,7 +49,7 @@ async function simulateAgentTurn(envelope: BusEnvelope): Promise<{
   toolRegistry.register(editTool);
 
   // Session manager
-  const sessionsDir = '/tmp/mach6-test-sessions';
+  const sessionsDir = path.join(os.tmpdir(), 'mach6-test-sessions');
   fs.mkdirSync(sessionsDir, { recursive: true });
   const sessionManager = new SessionManager(sessionsDir);
 

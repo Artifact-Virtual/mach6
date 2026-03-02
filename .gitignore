@@ -5,5 +5,25 @@ dist/
 *.js.map
 *.d.ts
 !src/**
+
+# Secrets & local config — never commit
 .env
 mach6.json
+
+# Keep templates — these ARE committed
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# WhatsApp auth (contains session keys)
+whatsapp-auth/
+*.tgz

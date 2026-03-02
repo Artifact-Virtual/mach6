@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { palette, ok } from '../cli/brand.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -66,7 +67,7 @@ let totalTokens = 0;
 
 let config: Config = {
   provider: 'anthropic',
-  model: 'claude-sonnet-4-20250514',
+  model: 'claude-opus-4-6',
   temperature: 0.7,
   maxTokens: 8192,
   apiKeys: {},
@@ -131,8 +132,8 @@ function matchRoute(pattern: string, pathname: string): Record<string, string> |
 const PROVIDERS = [
   { id: 'anthropic', name: 'Anthropic', models: ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-5-haiku-20241022'] },
 
-  { id: 'github-copilot', name: 'GitHub Copilot', models: ['claude-sonnet-4-20250514', 'gpt-4o'] },
-  { id: 'gladius', name: 'GLADIUS (Local)', models: ['gladius-125m', 'gladius-1b'] },
+  { id: 'github-copilot', name: 'GitHub Copilot', models: ['claude-opus-4-6', 'claude-sonnet-4-20250514', 'gpt-4o', 'o3-mini'] },
+  { id: 'gladius', name: 'Local (Gladius)', models: ['gladius-125m', 'gladius-1b'] },
 ];
 
 const TOOLS = [
@@ -460,7 +461,7 @@ function formatUptime(ms: number): string {
 export function startWebServer(port = 3006): http.Server {
   const server = http.createServer((req, res) => {
     handleRequest(req, res).catch(err => {
-      console.error('[mach6-web]', err);
+      console.error(`${palette.dim}  [mach6-web]${palette.reset}`, err);
       if (!res.headersSent) {
         json(res, { error: 'Internal server error' }, 500);
       }
@@ -480,14 +481,15 @@ export function startWebServer(port = 3006): http.Server {
   sessions.set(defaultSession.id, defaultSession);
 
   server.listen(port, () => {
-    console.log(`\n  ⚡ Mach6 Web UI → http://localhost:${port}\n`);
+    console.log(ok(`Web UI → ${palette.cyan}http://localhost:${port}${palette.reset}`));
   });
 
   return server;
 }
 
 // Run directly
-if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('web/server.js')) {
+const __filename = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)) {
   const port = parseInt(process.env.MACH6_PORT ?? '3006', 10);
   startWebServer(port);
 }

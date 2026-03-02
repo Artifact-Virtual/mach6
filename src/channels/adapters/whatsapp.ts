@@ -21,6 +21,7 @@ import {
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { BaseAdapter } from '../adapter.js';
 import { formatForChannel } from '../formatter.js';
@@ -254,7 +255,7 @@ export class WhatsAppAdapter extends BaseAdapter {
 
   /** Download media from message, attach local paths to payload, then emit */
   private async downloadAndEmit(msg: WAMessage, source: ChannelSource, payload: InboundPayload): Promise<void> {
-    const mediaDir = path.join('/tmp', 'mach6-media');
+    const mediaDir = path.join(os.tmpdir(), 'mach6-media');
     try {
       const localPath = await this.downloadMedia(msg, mediaDir);
       if (localPath && payload.media) {

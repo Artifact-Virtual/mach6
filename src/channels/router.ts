@@ -99,11 +99,11 @@ export class InboundRouter {
   private dedup = new DeduplicationCache();
   private routes = new Map<string, SessionRoute>(); // "adapterId:chatId" → route
   private sessionCounter = 0;
-  /** Sister conversation turn tracking — prevents echo loops between sibling bots.
-   *  Key: "adapterId:chatId", Value: timestamp of last response we sent to a sister in that channel. */
-  private sisterLastResponse = new Map<string, number>();
-  /** Minimum seconds between processing sister messages in the same channel. */
-  private static readonly SISTER_COOLDOWN_MS = 10_000; // 10 seconds
+  /** Sibling conversation turn tracking — prevents echo loops between sibling bots.
+   *  Key: "adapterId:chatId", Value: timestamp of last response we sent to a sibling in that channel. */
+  private siblingLastResponse = new Map<string, number>();
+  /** Minimum milliseconds between processing sibling messages in the same channel. */
+  private static readonly SIBLING_COOLDOWN_MS = 10_000; // 10 seconds
 
   constructor(bus: Mach6Bus, config: RouterConfig) {
     this.bus = bus;
@@ -123,11 +123,11 @@ export class InboundRouter {
     const policy = this.getPolicy(source.channelType);
     if (!this.checkPolicy(policy, source)) return false;
 
-    // 2b. Sister cooldown — prevent echo loops between sibling bots
+    // 2b. Sibling cooldown — prevent echo loops between sibling bots
     if (policy.siblingBotIds?.includes(source.senderId)) {
       const cooldownKey = `${source.adapterId}:${source.chatId}`;
-      const lastResponse = this.sisterLastResponse.get(cooldownKey);
-      if (lastResponse && (Date.now() - lastResponse) < InboundRouter.SISTER_COOLDOWN_MS) {
+      const lastResponse = this.siblingLastResponse.get(cooldownKey);
+      if (lastResponse && (Date.now() - lastResponse) < InboundRouter.SIBLING_COOLDOWN_MS) {
         return false; // Too soon — let the conversation breathe
       }
     }
@@ -181,7 +181,7 @@ export class InboundRouter {
     if (policy.ignoredChannels?.includes(source.chatId)) return false;
 
     // Strict-mention channels: even owners must @mention to trigger response.
-    // These are channels where AVA should only observe unless explicitly called.
+    // These are channels where the bot should only observe unless explicitly called.
     if (policy.strictMentionChannels?.includes(source.chatId)) {
       return this.isMentioned(policy, source);
     }
@@ -327,13 +327,13 @@ export class InboundRouter {
     this.config.policies.set(channelType, policy);
   }
 
-  // ── Sister Coordination ────────────────────────────────────────────────
+  // ── Sibling Coordination ───────────────────────────────────────────────
 
-  /** Record that we just responded to a sister bot in this channel.
+  /** Record that we just responded to a sibling bot in this channel.
    *  The cooldown prevents our sibling from immediately processing our response,
    *  giving turn-taking a natural rhythm instead of an infinite loop. */
-  recordSisterResponse(adapterId: string, chatId: string): void {
-    this.sisterLastResponse.set(`${adapterId}:${chatId}`, Date.now());
+  recordSiblingResponse(adapterId: string, chatId: string): void {
+    this.siblingLastResponse.set(`${adapterId}:${chatId}`, Date.now());
   }
 
   /** Check if a sender is a known sibling bot */

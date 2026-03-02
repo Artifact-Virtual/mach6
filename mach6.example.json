@@ -1,6 +1,6 @@
 {
   "defaultProvider": "github-copilot",
-  "defaultModel": "claude-sonnet-4",
+  "defaultModel": "claude-opus-4-6",
   "maxTokens": 8192,
   "maxIterations": 50,
   "temperature": 0.3,
@@ -20,7 +20,8 @@
   "discord": {
     "enabled": true,
     "token": "${DISCORD_BOT_TOKEN}",
-    "botId": "your-bot-id",
+    "botId": "${DISCORD_CLIENT_ID}",
+    "siblingBotIds": [],
     "policy": {
       "dmPolicy": "allowlist",
       "groupPolicy": "mention-only",

@@ -1,5 +1,14 @@
 #!/usr/bin/env node
-// Mach6 — CLI Entry Point (Phase 2: Enhanced)
+// Mach6 — CLI Entry Point
+// Sovereign AI agent framework · Artifact Virtual
+
+// Handle `mach6 init` before loading heavy imports
+const subcommand = process.argv[2];
+if (subcommand === 'init') {
+  const { runWizard } = await import('./cli/wizard.js');
+  await runWizard();
+  process.exit(0);
+}
 
 import * as readline from 'node:readline';
 import { loadConfig } from './config/config.js';
@@ -25,6 +34,11 @@ import { buildSystemPrompt } from './agent/system-prompt.js';
 import { runAgent } from './agent/runner.js';
 import type { Message } from './providers/types.js';
 import type { Session } from './sessions/types.js';
+import {
+  palette, gradient, multiGradient, banner, logo, tagline,
+  sectionHeader, ok, warn, info, kvLine, divider, thickDivider,
+  versionBanner, box,
+} from './cli/brand.js';
 
 // ─── Provider registry ───
 const providers = new Map<string, Provider>([
@@ -49,7 +63,7 @@ async function main() {
   let currentProviderName = providerArg ?? config.defaultProvider;
   let currentProvider = providers.get(currentProviderName);
   if (!currentProvider) {
-    console.error(`Unknown provider: ${currentProviderName}. Available: ${[...providers.keys()].join(', ')}`);
+    console.error(`${palette.red}✗${palette.reset} Unknown provider: ${currentProviderName}. Available: ${[...providers.keys()].join(', ')}`);
     process.exit(1);
   }
 
@@ -80,7 +94,7 @@ async function main() {
 
   // Sub-agent manager
   const subAgentMgr = new SubAgentManager(sessionMgr, (parentId, handle) => {
-    console.log(`\n\x1b[35m🤖 Sub-agent ${handle.sessionId} ${handle.status}: ${(handle.result ?? handle.error ?? '').slice(0, 200)}\x1b[0m\n`);
+    console.log(`\n${palette.violet}  ◎ Sub-agent ${handle.sessionId} ${handle.status}:${palette.reset} ${(handle.result ?? handle.error ?? '').slice(0, 200)}\n`);
   });
 
   // System prompt
@@ -93,9 +107,22 @@ async function main() {
     session.messages.unshift({ role: 'system', content: systemPrompt });
   }
 
-  console.log(`\x1b[36mMach6\x1b[0m v0.2 | ${currentProvider!.name}/${currentModel} | session: ${sessionId}`);
-  console.log(`Tools (${registry.list().length}): ${registry.list().map(t => t.name).join(', ')}`);
-  console.log('Type /help for commands\n');
+  // ── Branded CLI Header ──────────────────────────────────────
+
+  console.log(versionBanner('1.0.0'));
+
+  const providerDisplay = `${palette.cyan}${currentProvider!.name}${palette.reset}${palette.dim}/${palette.reset}${palette.white}${currentModel}${palette.reset}`;
+  const toolCount = `${palette.gold}${registry.list().length}${palette.reset}`;
+  const sessionDisplay = `${palette.violet}${sessionId}${palette.reset}`;
+
+  console.log(kvLine('Provider', providerDisplay));
+  console.log(kvLine('Tools', `${toolCount} ${palette.dim}registered${palette.reset}`));
+  console.log(kvLine('Session', sessionDisplay));
+  console.log();
+  console.log(`  ${palette.dim}Type ${palette.reset}${palette.cyan}/help${palette.reset}${palette.dim} for commands${palette.reset}`);
+  console.log();
+  console.log(divider());
+  console.log();
 
   const runWithCallbacks = async (msgs: Message[], provConfig: ProviderConfig) => {
     return runAgent(msgs, {
@@ -111,11 +138,11 @@ async function main() {
       },
       onToolStart(name) {
         sessionMgr.trackToolCall(session, name);
-        console.log(`\n\x1b[33m⚡ ${name}\x1b[0m`);
+        console.log(`\n${palette.violet}  ⚡ ${name}${palette.reset}`);
       },
       onToolEnd(name, result) {
         const preview = result.length > 200 ? result.slice(0, 200) + '...' : result;
-        console.log(`\x1b[32m✓ ${name}\x1b[0m ${preview.split('\n')[0]}`);
+        console.log(`${palette.green}  ✓ ${name}${palette.reset} ${palette.dim}${preview.split('\n')[0]}${palette.reset}`);
       },
     });
   };
@@ -131,52 +158,72 @@ async function main() {
     return;
   }
 
-  // Interactive REPL
+  // ── Interactive REPL ────────────────────────────────────────
+
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
   const handleCommand = async (trimmed: string): Promise<boolean> => {
     if (trimmed === '/quit' || trimmed === '/exit') { rl.close(); return true; }
 
     if (trimmed === '/help') {
-      console.log(`
-Commands:
-  /tools              List available tools
-  /history [N]        Show last N messages (default 10)
-  /model <name>       Switch model
-  /provider <name>    Switch provider
-  /spawn <task>       Spawn a sub-agent
-  /status             Session stats
-  /sessions           List all sessions
-  /clear              Clear session
-  /quit               Exit
-`);
+      console.log();
+      const helpTitle = gradient('COMMANDS', [138, 43, 226], [0, 229, 255]);
+      console.log(`  ${palette.bold}${helpTitle}${palette.reset}`);
+      console.log();
+      const commands = [
+        ['/tools',           'List available tools'],
+        ['/history [N]',     'Show last N messages (default 10)'],
+        ['/model <name>',    'Switch model mid-session'],
+        ['/provider <name>', 'Switch provider mid-session'],
+        ['/spawn <task>',    'Spawn a sub-agent'],
+        ['/status',          'Session stats and usage'],
+        ['/sessions',        'List all sessions'],
+        ['/clear',           'Clear session history'],
+        ['/quit',            'Exit Mach6'],
+      ];
+      for (const [cmd, desc] of commands) {
+        const paddedCmd = cmd.padEnd(20);
+        console.log(`  ${palette.cyan}${paddedCmd}${palette.reset}${palette.silver}${desc}${palette.reset}`);
+      }
+      console.log();
       return true;
     }
 
     if (trimmed === '/tools') {
+      console.log();
+      const toolTitle = gradient('TOOLS', [255, 193, 37], [255, 160, 0]);
+      console.log(`  ${palette.bold}${toolTitle}${palette.reset} ${palette.dim}(${registry.list().length})${palette.reset}`);
+      console.log();
       for (const t of registry.list()) {
-        console.log(`  \x1b[36m${t.name}\x1b[0m — ${t.description}`);
+        console.log(`  ${palette.cyan}${t.name.padEnd(20)}${palette.reset}${palette.dim}${t.description}${palette.reset}`);
       }
-      console.log('');
+      console.log();
       return true;
     }
 
     if (trimmed.startsWith('/history')) {
       const n = parseInt(trimmed.split(' ')[1] ?? '10', 10);
       const msgs = session.messages.filter(m => m.role !== 'system').slice(-n);
+      console.log();
       for (const m of msgs) {
         const text = typeof m.content === 'string' ? m.content.slice(0, 200) : '[structured]';
-        const color = m.role === 'user' ? '36' : m.role === 'assistant' ? '37' : '33';
-        console.log(`  \x1b[${color}m[${m.role}]\x1b[0m ${text}`);
+        const roleColors: Record<string, string> = {
+          'user': palette.cyan,
+          'assistant': palette.violet,
+          'tool': palette.gold,
+        };
+        const color = roleColors[m.role] ?? palette.dim;
+        console.log(`  ${color}[${m.role}]${palette.reset} ${palette.white}${text}${palette.reset}`);
       }
-      console.log('');
+      console.log();
       return true;
     }
 
     if (trimmed.startsWith('/model ')) {
       currentModel = trimmed.slice(7).trim();
       session.metadata.model = currentModel;
-      console.log(`Model switched to: ${currentModel}\n`);
+      console.log(ok(`Model → ${palette.cyan}${currentModel}${palette.reset}`));
+      console.log();
       return true;
     }
 
@@ -184,19 +231,20 @@ Commands:
       const name = trimmed.slice(10).trim();
       const p = providers.get(name);
       if (!p) {
-        console.log(`Unknown provider. Available: ${[...providers.keys()].join(', ')}\n`);
+        console.log(warn(`Unknown provider. Available: ${[...providers.keys()].join(', ')}`));
       } else {
         currentProviderName = name;
         currentProvider = p;
         session.metadata.provider = name;
-        console.log(`Provider switched to: ${name}\n`);
+        console.log(ok(`Provider → ${palette.cyan}${name}${palette.reset}`));
       }
+      console.log();
       return true;
     }
 
     if (trimmed.startsWith('/spawn ')) {
       const task = trimmed.slice(7).trim();
-      if (!task) { console.log('Usage: /spawn <task>\n'); return true; }
+      if (!task) { console.log(warn('Usage: /spawn <task>')); return true; }
       const handle = await subAgentMgr.spawn(
         { parentSessionId: sessionId, task, depth: session.metadata.depth + 1 },
         currentProvider!,
@@ -204,46 +252,60 @@ Commands:
         registry,
         config.workspace,
       );
-      console.log(`Spawned sub-agent: ${handle.sessionId} (status: ${handle.status})\n`);
+      console.log(ok(`Sub-agent spawned: ${palette.violet}${handle.sessionId}${palette.reset}`));
+      console.log();
       return true;
     }
 
     if (trimmed === '/status') {
       const m = session.metadata;
-      console.log(`
-Session: ${session.id}${m.label ? ` (${m.label})` : ''}
-Provider: ${m.provider ?? currentProviderName} / ${m.model ?? currentModel}
-Messages: ${m.messageCount}
-Tokens: ${m.tokenUsage.input} in / ${m.tokenUsage.output} out
-Tools used: ${Object.entries(m.toolsUsed).map(([k, v]) => `${k}(${v})`).join(', ') || 'none'}
-Sub-agents: ${subAgentMgr.listRunning().length} running
-Created: ${new Date(session.createdAt).toLocaleString()}
-`);
+      console.log();
+      const statusTitle = gradient('SESSION STATUS', [138, 43, 226], [0, 229, 255]);
+      console.log(`  ${palette.bold}${statusTitle}${palette.reset}`);
+      console.log();
+      console.log(kvLine('Session', `${palette.violet}${session.id}${palette.reset}${m.label ? ` (${m.label})` : ''}`));
+      console.log(kvLine('Provider', `${palette.cyan}${m.provider ?? currentProviderName}${palette.reset}${palette.dim}/${palette.reset}${palette.white}${m.model ?? currentModel}${palette.reset}`));
+      console.log(kvLine('Messages', `${palette.white}${m.messageCount}${palette.reset}`));
+      console.log(kvLine('Tokens', `${palette.green}${m.tokenUsage.input}${palette.reset} in ${palette.dim}/${palette.reset} ${palette.gold}${m.tokenUsage.output}${palette.reset} out`));
+      console.log(kvLine('Tools used', Object.entries(m.toolsUsed).map(([k, v]) => `${palette.cyan}${k}${palette.reset}(${v})`).join(', ') || `${palette.dim}none${palette.reset}`));
+      console.log(kvLine('Sub-agents', `${subAgentMgr.listRunning().length} running`));
+      console.log(kvLine('Created', new Date(session.createdAt).toLocaleString()));
+      console.log();
       return true;
     }
 
     if (trimmed === '/sessions') {
       const sessions = sessionMgr.list();
+      console.log();
+      const sessTitle = gradient('SESSIONS', [255, 193, 37], [255, 160, 0]);
+      console.log(`  ${palette.bold}${sessTitle}${palette.reset} ${palette.dim}(${sessions.length})${palette.reset}`);
+      console.log();
       for (const s of sessions) {
-        const label = s.label ? ` (${s.label})` : '';
-        console.log(`  ${s.id}${label} — ${s.messageCount} msgs, ${new Date(s.updatedAt).toLocaleString()}`);
+        const label = s.label ? ` ${palette.dim}(${s.label})${palette.reset}` : '';
+        const active = s.id === sessionId ? ` ${palette.green}●${palette.reset}` : '';
+        console.log(`  ${palette.violet}${s.id}${palette.reset}${label}${active} ${palette.dim}— ${s.messageCount} msgs, ${new Date(s.updatedAt).toLocaleString()}${palette.reset}`);
       }
-      console.log('');
+      console.log();
       return true;
     }
 
     if (trimmed === '/clear') {
       session = sessionMgr.create(sessionId, { provider: currentProviderName, model: currentModel });
       session.messages.unshift({ role: 'system', content: systemPrompt });
-      console.log('Session cleared.\n');
+      console.log(ok('Session cleared'));
+      console.log();
       return true;
     }
 
     return false;
   };
 
+  // ── The Prompt ──────────────────────────────────────
+
+  const promptStr = `${palette.violet}❯${palette.reset} `;
+
   const prompt = () => {
-    rl.question('\x1b[36m❯\x1b[0m ', async (input) => {
+    rl.question(promptStr, async (input) => {
       const trimmed = input.trim();
       if (!trimmed) { prompt(); return; }
 
@@ -262,7 +324,7 @@ Created: ${new Date(session.createdAt).toLocaleString()}
         if (result.text) session.messages.push({ role: 'assistant', content: result.text });
         sessionMgr.save(session);
       } catch (err) {
-        console.error(`\n\x1b[31mError:\x1b[0m ${err instanceof Error ? err.message : err}\n`);
+        console.error(`\n${palette.red}  ✗ Error:${palette.reset} ${err instanceof Error ? err.message : err}\n`);
       }
 
       prompt();

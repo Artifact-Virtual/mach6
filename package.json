@@ -1,16 +1,51 @@
 {
   "name": "mach6-core",
   "version": "1.3.0",
-  "description": "Mach6 — Sovereign AI Agent Framework",
+  "description": "Mach6 — Multi-channel AI agent framework. Persistent daemon, real-time interrupts, tool execution. Runs on a laptop.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "mach6": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "web",
+    "README.md",
+    "LICENSE",
+    "mach6.example.json"
+  ],
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsc && node dist/index.js"
+    "start": "node dist/gateway/daemon.js --config=mach6.json",
+    "dev": "tsc && node dist/index.js",
+    "init": "tsc && node dist/cli/wizard.js"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "framework",
+    "llm",
+    "discord",
+    "whatsapp",
+    "claude",
+    "copilot",
+    "chatbot",
+    "multi-channel",
+    "tool-calling",
+    "sovereign"
+  ],
+  "author": "Artifact Virtual <hello@artifactvirtual.com> (https://artifactvirtual.com)",
+  "license": "MIT",
+  "homepage": "https://github.com/Artifact-Virtual/mach6#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Artifact-Virtual/mach6.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Artifact-Virtual/mach6/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
@@ -19,5 +54,8 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0"
+  },
+  "overrides": {
+    "undici": ">=6.23.0"
   }
 }
