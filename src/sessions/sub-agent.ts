@@ -9,6 +9,7 @@ import type { ToolExecutor } from '../agent/runner.js';
 import { runAgent } from '../agent/runner.js';
 import { buildSystemPrompt } from '../agent/system-prompt.js';
 import { createSandboxedRegistry, type SessionContext } from '../tools/sandbox.js';
+import { PolicyEngine } from '../tools/policy.js';
 
 const MAX_DEPTH = 3;
 
@@ -71,7 +72,11 @@ export class SubAgentManager {
     const systemPrompt = buildSystemPrompt({
       workspace,
       tools: sandboxedTools.list().map(t => t.name),
-      extraContext: `You are a sub-agent spawned for a specific task. Complete it and provide a concise result.\n\nTask: ${config.task}`,
+      extraContext: `You are a sub-agent spawned for a specific task. Complete it and provide a concise result.
+
+IMPORTANT: You have a maximum of ${config.maxIterations ?? 25} iterations. When you see a warning about approaching the limit, immediately wrap up and return your best result so far. Do NOT let yourself hit the wall — provide partial results rather than nothing.
+
+Task: ${config.task}`,
     });
 
     session.messages.push({ role: 'system', content: systemPrompt });
@@ -91,13 +96,24 @@ export class SubAgentManager {
     providerConfig: ProviderConfig,
     toolRegistry: ToolExecutor,
   ): Promise<void> {
+    const maxIter = config.maxIterations ?? 25;
+
+    // Create a policy engine for this sub-agent so it gets iteration warnings
+    const policyEngine = new PolicyEngine();
+    policyEngine.setSessionPolicy({
+      sessionId: session.id,
+      tools: {},
+      maxIterations: maxIter,
+    });
+
     try {
       const result = await runAgent(session.messages, {
         provider,
         providerConfig: { ...providerConfig, systemPrompt: session.messages[0]?.content as string },
         toolRegistry,
-        maxIterations: config.maxIterations ?? 15,
+        maxIterations: maxIter,
         sessionId: session.id,
+        policyEngine,
       });
 
       handle.status = 'completed';

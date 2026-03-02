@@ -116,22 +116,37 @@ async function* streamCopilot(
   tools: ToolDef[],
   config: ProviderConfig,
 ): AsyncIterable<StreamEvent> {
-  const { token, baseUrl } = await resolveCopilotToken();
+  let attempts = 0;
+  while (attempts < 2) {
+    const { token, baseUrl } = await resolveCopilotToken();
 
-  // Copilot uses OpenAI-compatible API with extra headers
-  const copilotConfig: ProviderConfig = {
-    ...config,
-    apiKey: token,
-    baseUrl: config.baseUrl ?? baseUrl,
-    extraHeaders: {
-      'Editor-Version': 'vscode/1.96.2',
-      'User-Agent': 'GitHubCopilotChat/0.26.7',
-      'Copilot-Integration-Id': 'vscode-chat',
-      'Openai-Intent': 'conversation-panel',
-    },
-  } as ProviderConfig & { extraHeaders: Record<string, string> };
+    // Copilot uses OpenAI-compatible API with extra headers
+    const copilotConfig: ProviderConfig = {
+      ...config,
+      apiKey: token,
+      baseUrl: config.baseUrl ?? baseUrl,
+      extraHeaders: {
+        'Editor-Version': 'vscode/1.96.2',
+        'User-Agent': 'GitHubCopilotChat/0.26.7',
+        'Copilot-Integration-Id': 'vscode-chat',
+        'Openai-Intent': 'conversation-panel',
+      },
+    } as ProviderConfig & { extraHeaders: Record<string, string> };
 
-  yield* openaiProvider.stream(messages, tools, copilotConfig);
+    try {
+      yield* openaiProvider.stream(messages, tools, copilotConfig);
+      return; // success
+    } catch (err: any) {
+      // If 401 (token expired mid-stream), invalidate cache and retry once
+      if (attempts === 0 && (err?.status === 401 || err?.message?.includes('401'))) {
+        console.warn('[copilot] Token expired mid-stream, refreshing...');
+        cachedToken = null;
+        attempts++;
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 export const githubCopilotProvider: Provider = {

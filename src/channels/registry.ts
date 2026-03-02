@@ -102,7 +102,14 @@ export class ChannelRegistry {
     // Wire health changes
     adapter.onHealthChange((health) => {
       this.onAdapterHealthChange?.(adapter.id, health);
-      if (health.state === 'disconnected') {
+      if (health.state === 'connected') {
+        // Reconnected successfully — restore running status
+        if (entry.status === 'error' || entry.status === 'starting') {
+          entry.status = 'running';
+          entry.error = undefined;
+          console.log(`[registry] Adapter ${adapter.id}: recovered → running`);
+        }
+      } else if (health.state === 'disconnected') {
         entry.status = 'error';
         entry.error = health.lastError;
         // Auto-reconnect with appropriate delay

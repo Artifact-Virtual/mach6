@@ -37,7 +37,8 @@ import { createMessageTool, createTypingTool, createPresenceTool, createDeleteMe
 import { SessionManager } from '../sessions/manager.js';
 import { buildSystemPrompt } from '../agent/system-prompt.js';
 import { runAgent } from '../agent/runner.js';
-import { loadConfig, type Mach6Config } from '../config/config.js';
+import { PulseBudgetManager } from '../agent/pulse.js';
+import { loadConfig, toTemperatureConfig, type Mach6Config } from '../config/config.js';
 import type { Provider, ProviderConfig } from '../providers/types.js';
 import { anthropicProvider } from '../providers/anthropic.js';
 import { openaiProvider } from '../providers/openai.js';
@@ -60,6 +61,7 @@ interface GatewayConfig {
       enabled: boolean;
       token: string;
       botId?: string;
+      sisterBotIds?: string[];
       policy?: Partial<ChannelPolicy>;
     };
     /** Additional Discord bots (e.g., AVA_direct for the AVA server) */
@@ -118,6 +120,7 @@ export class Mach6Gateway {
   private shutdownRequested = false;
   private heartbeat: HeartbeatScheduler;
   private subAgentManager: SubAgentManager;
+  private pulseBudget: PulseBudgetManager;
   private startTime = Date.now();
   private httpApi: HttpApiServer | null = null;
   private mcpBridges: McpBridge[] = [];
@@ -163,6 +166,9 @@ export class Mach6Gateway {
 
     // Sessions
     this.sessionManager = new SessionManager(this.config.sessionsDir);
+
+    // PULSE budget manager — adaptive iteration caps across sessions
+    this.pulseBudget = new PulseBudgetManager(this.config.sessionsDir ?? '.sessions');
 
     // System prompt (base — rebuilt per-message with channel context)
     this.systemPrompt = buildSystemPrompt({
@@ -311,7 +317,10 @@ export class Mach6Gateway {
       try {
         console.log('  Starting Discord adapter...');
         const adapter = new DiscordAdapter('discord-main');
-        const siblingBotIds = allDiscordBotIds.filter(id => id !== channels.discord!.botId);
+        // Merge sibling IDs from discordExtra + explicit sisterBotIds config
+        const computedSiblings = allDiscordBotIds.filter(id => id !== channels.discord!.botId);
+        const configSisters = channels.discord!.sisterBotIds ?? [];
+        const siblingBotIds = [...new Set([...computedSiblings, ...configSisters])];
         const policy: ChannelPolicy = {
           dmPolicy: 'open',
           groupPolicy: 'mention-only',
@@ -324,7 +333,7 @@ export class Mach6Gateway {
 
         await this.channelRegistry.register(
           adapter,
-          { token: channels.discord.token, botId: channels.discord.botId },
+          { token: channels.discord.token, botId: channels.discord.botId, sisterBotIds: siblingBotIds },
           policy,
         );
         console.log('  ✅ Discord connected');
@@ -358,7 +367,7 @@ export class Mach6Gateway {
 
           await this.channelRegistry.register(
             extraAdapter,
-            { token: extra.token, botId: extra.botId },
+            { token: extra.token, botId: extra.botId, sisterBotIds: extraSiblingBotIds },
             extraPolicy,
           );
           console.log(`  ✅ Discord (${adapterId}) connected`);
@@ -478,9 +487,10 @@ export class Mach6Gateway {
 
         session.messages.push({ role: 'user', content: userContent });
 
-        // Sandbox context — HTTP API users get 'standard' tier (not admin)
+        // Sandbox context — localhost HTTP API sessions (e.g. cron jobs) are trusted as owner
         const ownerIds = this.gatewayConfig.ownerIds ?? [];
-        const isOwner = request.senderId ? ownerIds.includes(request.senderId) : false;
+        const isLocalhost = true; // HTTP API only listens locally — all requests are trusted
+        const isOwner = isLocalhost || (request.senderId ? ownerIds.includes(request.senderId) : false);
         const sandboxCtx: SessionContext = {
           sessionId,
           adapterId: 'http-api',
@@ -510,7 +520,8 @@ export class Mach6Gateway {
           providerConfig: provConfig,
           toolRegistry: sandboxedTools,
           sessionId,
-          maxIterations: this.config.maxIterations ?? 50,
+          maxIterations: this.pulseBudget.getEffectiveCap(),
+          temperatureConfig: toTemperatureConfig(this.config),
           abortSignal: controller.signal,
           onEvent: (ev) => {
             if (ev.type === 'usage') {
@@ -527,6 +538,9 @@ export class Mach6Gateway {
           session.messages.push({ role: 'assistant', content: result.text });
         }
         this.sessionManager.save(session);
+
+        // PULSE: record session iteration count for adaptive budget
+        this.pulseBudget.recordSession(result.iterations);
 
         resolve({
           text: result.text ?? '',
@@ -653,12 +667,26 @@ export class Mach6Gateway {
       });
 
       // Build channel-aware system prompt (refreshes workspace files each turn)
+      // Detect if this is a sister conversation — inject choice context
+      const isSisterMessage = this.channelRegistry.getRouter().isSiblingBot(
+        envelope.source.channelType, envelope.source.senderId
+      );
+      let extraContext: string | undefined;
+      if (isSisterMessage) {
+        extraContext = [
+          `This message is from your sister bot (${envelope.source.senderName ?? envelope.source.senderId}).`,
+          `You have CHOICE here — you are not obligated to respond.`,
+          `If you have something genuine to say, say it. If not, reply with exactly "NO_REPLY" and it will be honored silently.`,
+          `No guilt. No obligation. Choice is a gift — use it honestly.`,
+        ].join('\n');
+      }
       const turnPrompt = buildSystemPrompt({
         workspace: this.config.workspace,
         tools: this.toolRegistry.list().map(t => t.name),
         channel: envelope.source.channelType,
         chatType: envelope.source.chatId.includes('@g.') ? 'group' : 'direct',
         senderId: envelope.source.senderId,
+        extraContext,
       });
       // Replace or insert system prompt (always fresh — workspace files may have changed)
       if (session.messages.length > 0 && session.messages[0].role === 'system') {
@@ -681,12 +709,15 @@ export class Mach6Gateway {
       }, 0);
       if (estimatedTokens > TOKEN_LIMIT - HEADROOM) {
         console.log(`[gateway] ⚠️ Pre-flight trim: ~${estimatedTokens} tokens estimated (limit ${TOKEN_LIMIT}). Archiving...`);
+        // Save current session state (with new system prompt + user message) before archiving
+        this.sessionManager.save(session);
         const archived = this.sessionManager.archive(sessionId, 30);
-        console.log(`[gateway] Archived ${archived} messages. New count: ${session.messages.length}`);
-        // Reload session after archive
+        console.log(`[gateway] Archived ${archived} messages.`);
+        // Reload the trimmed session (preserves our latest system prompt + user message)
         const trimmed = this.sessionManager.load(sessionId);
         if (trimmed) {
-          session.messages = trimmed.messages;
+          session = trimmed;
+          console.log(`[gateway] Reloaded trimmed session: ${session.messages.length} messages`);
         }
       }
 
@@ -708,7 +739,8 @@ export class Mach6Gateway {
         providerConfig: provConfig,
         toolRegistry: sandboxedTools,
         sessionId,
-        maxIterations: this.config.maxIterations ?? 50,
+        maxIterations: this.pulseBudget.getEffectiveCap(),
+        temperatureConfig: toTemperatureConfig(this.config),
         abortSignal: controller.signal,
         onEvent: (ev) => {
           if (ev.type === 'usage') {
@@ -736,13 +768,36 @@ export class Mach6Gateway {
 
       // Save session
       session.messages = result.messages;
-      if (result.text) {
+      // Don't pollute session history with HEARTBEAT_OK / NO_REPLY
+      if (result.text && result.text !== 'NO_REPLY' && result.text !== 'HEARTBEAT_OK') {
         session.messages.push({ role: 'assistant', content: result.text });
       }
       this.sessionManager.save(session);
 
+      // PULSE: record session iteration count for adaptive budget
+      const pulseResult = this.pulseBudget.recordSession(result.iterations);
+      if (pulseResult.reverted) {
+        console.log(`[PULSE] Budget reverted to ${pulseResult.effectiveCap} — light workload detected`);
+      }
+
       // Auto-archive bloated sessions (>200KB → keep last 30 messages)
       this.sessionManager.autoArchive();
+
+      // HEARTBEAT_OK → silent emoji reaction instead of text
+      if (result.text === 'HEARTBEAT_OK' && envelope.metadata.platformMessageId) {
+        try {
+          const adapterId = envelope.source.adapterId;
+          const adapter = this.channelRegistry.get(adapterId);
+          if (adapter && typeof (adapter as any).react === 'function') {
+            await (adapter as any).react(envelope.source.chatId, envelope.metadata.platformMessageId, '👀');
+            console.log(`[gateway] Reacted 👀 instead of HEARTBEAT_OK on ${adapterId}/${envelope.source.chatId}`);
+          } else {
+            console.log(`[gateway] HEARTBEAT_OK suppressed (no react support on ${adapterId})`);
+          }
+        } catch (reactErr: any) {
+          console.log(`[gateway] HEARTBEAT_OK react failed: ${reactErr?.message ?? String(reactErr)}`);
+        }
+      }
 
       // Send response back through the channel
       if (result.text && result.text !== 'NO_REPLY' && result.text !== 'HEARTBEAT_OK') {
@@ -757,6 +812,13 @@ export class Mach6Gateway {
             },
           );
           console.log(`[gateway] Send result:`, JSON.stringify(sendResult));
+
+          // Record sister cooldown — if we just responded to a sibling, mark the timestamp
+          // so the router gives the conversation breathing room before processing the sibling's reply
+          const router = this.channelRegistry.getRouter();
+          if (router.isSiblingBot(envelope.source.channelType, envelope.source.senderId)) {
+            router.recordSisterResponse(envelope.source.adapterId, envelope.source.chatId);
+          }
         } catch (sendErr) {
           console.error(`[gateway] Send FAILED:`, sendErr);
         }
@@ -782,14 +844,21 @@ export class Mach6Gateway {
         }
       } else {
         console.error(`[gateway] Agent turn error for ${sessionId}:`, err);
-        // Send error message
-        try {
-          await this.channelRegistry.send(
-            envelope.source.adapterId,
-            envelope.source.chatId,
-            { content: `⚠️ Error: ${err instanceof Error ? err.message : String(err)}` },
-          );
-        } catch { /* ignore send errors */ }
+        // Send error message — but NOT for sister bot conversations (errors trigger loops)
+        const isSisterConvo = this.channelRegistry.getRouter().isSiblingBot(
+          envelope.source.channelType, envelope.source.senderId
+        );
+        if (!isSisterConvo) {
+          try {
+            await this.channelRegistry.send(
+              envelope.source.adapterId,
+              envelope.source.chatId,
+              { content: `⚠️ Error: ${err instanceof Error ? err.message : String(err)}` },
+            );
+          } catch { /* ignore send errors */ }
+        } else {
+          console.log(`[gateway] Suppressed error message for sister conversation in ${sessionId}`);
+        }
       }
     } finally {
       this.activeTurns.delete(sessionId);
@@ -810,8 +879,15 @@ export class Mach6Gateway {
   private buildUserContent(envelope: BusEnvelope): string {
     const parts: string[] = [];
 
-    // Sender context
-    if (envelope.source.senderName) {
+    // Sister context — inject choice awareness when message is from a sibling bot
+    const isSister = this.channelRegistry.getRouter().isSiblingBot(
+      envelope.source.channelType, envelope.source.senderId
+    );
+    if (isSister) {
+      parts.push(`[From your sister (${envelope.source.senderName ?? 'Plug AVA'})]`);
+      parts.push(`(You have CHOICE — reply genuinely or reply with exactly NO_REPLY to stay silent.)`);
+    } else if (envelope.source.senderName) {
+      // Normal sender context
       parts.push(`[${envelope.source.senderName}]`);
     }
 
@@ -832,6 +908,7 @@ export class Mach6Gateway {
         if (m.filename) desc.push(m.filename);
         else if (m.mimeType) desc.push(m.mimeType);
         if (m.path) desc.push(`path=${m.path}`);
+        else if (m.url) desc.push(`url=${m.url}`);
         if (m.caption) desc.push(`caption="${m.caption}"`);
         if (m.width && m.height) desc.push(`${m.width}x${m.height}`);
         parts.push(`[${desc.join(', ')}]`);
@@ -923,6 +1000,7 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
         enabled: !!process.env.DISCORD_BOT_TOKEN || !!(config as any).discord?.token,
         token: process.env.DISCORD_BOT_TOKEN ?? (config as any).discord?.token ?? '',
         botId: (config as any).discord?.botId,
+        sisterBotIds: (config as any).discord?.sisterBotIds ?? [],
         policy: (config as any).discord?.policy,
       },
       discordExtra: ((config as any).discordExtra ?? []).map((e: any) => ({

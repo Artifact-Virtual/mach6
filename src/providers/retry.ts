@@ -21,6 +21,18 @@ export async function fetchWithRetry(url: string, init: RequestInit): Promise<Re
       const res = await fetch(url, init);
       if (res.ok) return res;
 
+      // 401 — token expired (e.g., copilot session token). Invalidate cache and retry once.
+      if (res.status === 401 && attempt < RETRY_DELAYS.length) {
+        console.warn(`[retry] 401 Unauthorized (attempt ${attempt + 1}) — token may have expired, retrying...`);
+        // Signal to callers that cached tokens should be refreshed
+        (res as any)._tokenExpired = true;
+        if (attempt === 0) {
+          await new Promise(r => setTimeout(r, 500));
+          continue;
+        }
+        return res;
+      }
+
       // Retry on 429 (rate limit) and 500+ (server errors)
       if (res.status === 429 || res.status >= 500) {
         if (attempt < RETRY_DELAYS.length) {

@@ -1,10 +1,18 @@
-// Mach6 — System prompt builder
-// Assembles identity, personality, and operational context from workspace .md files
-// This is the soul of the agent — workspace files ARE the configuration
+// Mach6 — System prompt builder (v2 — HEKTOR-native)
+// 
+// v1 loaded 7 markdown files (~95K chars) into every session.
+// v2 loads only identity core (~15K chars) + COMB recall (~2K chars).
+// Everything else lives in HEKTOR — searched on demand, zero idle cost.
+//
+// Architecture:
+//   System prompt = SOUL + IDENTITY + USER_CORE + AGENTS_CORE + COMB recall + tools
+//   HEKTOR = TOOLS.md, AGENTS.md, USER.md, HEARTBEAT.md, WORKFLOW_AUTO.md, memory/*, long-term.md
+//   COMB = lossless session-to-session operational memory
 
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execSync } from 'node:child_process';
 
 export interface SystemPromptParams {
   workspace: string;
@@ -15,22 +23,22 @@ export interface SystemPromptParams {
   extraContext?: string;
 }
 
-/** Files loaded in order. Each becomes a labeled section. Missing files are silently skipped. */
-const WORKSPACE_FILES = [
-  { path: 'SOUL.md',       label: 'Soul',              required: false },
-  { path: 'IDENTITY.md',   label: 'Identity',          required: false },
-  { path: 'USER.md',       label: 'About the User',    required: false },
-  { path: 'AGENTS.md',     label: 'Operating Protocol', required: false },
-  { path: 'TOOLS.md',      label: 'Tool Notes',        required: false },
-  { path: 'HEARTBEAT.md',  label: 'Heartbeat Config',  required: false },
-  { path: 'WORKFLOW_AUTO.md', label: 'Active Workflows', required: false },
+/** 
+ * Identity core — loaded every session. These define WHO the agent IS.
+ * Everything else is searchable via HEKTOR (memory_search tool).
+ */
+const IDENTITY_FILES = [
+  { path: 'SOUL.md',         label: 'Soul' },          // ~3.5K
+  { path: 'IDENTITY.md',     label: 'Identity' },      // ~5.5K
+  { path: 'USER_CORE.md',    label: 'About the User' },// ~3K (slim)
+  { path: 'AGENTS_CORE.md',  label: 'Operating Protocol' }, // ~3.5K (rules only)
 ];
 
-/** Max bytes per file to prevent context blowup */
-const MAX_FILE_BYTES = 30_000;
+/** Max bytes per identity file */
+const MAX_FILE_BYTES = 15_000;
 
-/** Max total prompt size (~120K chars, leaves room for conversation) */
-const MAX_TOTAL_CHARS = 120_000;
+/** Max total prompt size — much lower now since we're lean */
+const MAX_TOTAL_CHARS = 50_000;
 
 function readFileSafe(filePath: string, maxBytes: number): string | null {
   try {
@@ -47,18 +55,34 @@ function readFileSafe(filePath: string, maxBytes: number): string | null {
   }
 }
 
-function readTodayMemory(workspace: string): string | null {
-  const now = new Date();
-  const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
-  const memPath = path.join(workspace, 'memory', `${dateStr}.md`);
-  return readFileSafe(memPath, 15_000); // Smaller limit for daily memory
-}
-
-function readYesterdayMemory(workspace: string): string | null {
-  const yesterday = new Date(Date.now() - 86_400_000);
-  const dateStr = yesterday.toISOString().split('T')[0];
-  const memPath = path.join(workspace, 'memory', `${dateStr}.md`);
-  return readFileSafe(memPath, 10_000);
+/**
+ * Recall operational memory from COMB.
+ * Returns the most recent/relevant context for session continuity.
+ * Runs flush.py recall and captures output (~2-3K chars).
+ */
+function recallCOMB(workspace: string): string | null {
+  try {
+    const flushScript = path.join(workspace, '.ava-memory', 'flush.py');
+    if (!fs.existsSync(flushScript)) return null;
+    
+    const result = execSync(
+      `python3 "${flushScript}" recall`,
+      { 
+        cwd: workspace, 
+        timeout: 10_000,
+        encoding: 'utf-8',
+        env: { ...process.env, PATH: `${workspace}/.hektor-env/bin:${process.env.PATH}` }
+      }
+    );
+    
+    // Limit to 5K chars max
+    const trimmed = result.trim();
+    if (!trimmed || trimmed.includes('COMB is empty')) return null;
+    return trimmed.length > 5000 ? trimmed.slice(0, 5000) + '\n[... recall truncated]' : trimmed;
+  } catch (err) {
+    // COMB recall failure is non-fatal — agent can still search HEKTOR
+    return null;
+  }
 }
 
 export function buildSystemPrompt(params: SystemPromptParams): string {
@@ -89,25 +113,19 @@ export function buildSystemPrompt(params: SystemPromptParams): string {
     params.senderId ? `- Sender: ${params.senderId}` : '',
   ].filter(Boolean).join('\n'));
 
-  // ── Workspace files (personality, identity, protocols) ──
-  for (const file of WORKSPACE_FILES) {
+  // ── Identity core (always loaded — this is WHO you are) ──
+  for (const file of IDENTITY_FILES) {
     const filePath = path.join(params.workspace, file.path);
     const content = readFileSafe(filePath, MAX_FILE_BYTES);
     if (content) {
-      if (!addSection(file.label, content)) break; // Hit size limit
+      if (!addSection(file.label, content)) break;
     }
   }
 
-  // ── Today's memory ──
-  const todayMem = readTodayMemory(params.workspace);
-  if (todayMem) {
-    addSection('Today\'s Memory', todayMem);
-  }
-
-  // ── Yesterday's memory (smaller) ──
-  const yesterdayMem = readYesterdayMemory(params.workspace);
-  if (yesterdayMem) {
-    addSection('Yesterday\'s Memory', yesterdayMem);
+  // ── COMB operational recall (lossless session memory) ──
+  const combRecall = recallCOMB(params.workspace);
+  if (combRecall) {
+    addSection('Operational Memory (COMB)', combRecall);
   }
 
   // ── Tools ──
@@ -116,7 +134,7 @@ export function buildSystemPrompt(params: SystemPromptParams): string {
       `You have access to: ${params.tools.join(', ')}`,
       '',
       'Call tools when needed. For file operations, use read/write. For shell commands, use exec.',
-      'Be resourceful — look things up before asking.',
+      'Be resourceful — search HEKTOR (memory_search) before guessing.',
     ].join('\n'));
   }
 
@@ -125,16 +143,18 @@ export function buildSystemPrompt(params: SystemPromptParams): string {
     addSection('Context', params.extraContext);
   }
 
-  // ── Guidelines (kept minimal — SOUL.md and AGENTS.md carry the real personality) ──
+  // ── Guidelines ──
   addSection('Core Guidelines', [
     '- Embody your SOUL.md persona. No generic chatbot behavior.',
-    '- Follow AGENTS.md operating protocols (memory, delegation, safety).',
-    '- Use TOOLS.md for local specifics (credentials locations, CLI commands).',
+    '- Follow AGENTS_CORE.md operating rules (delegation, safety, memory).',
+    '- **Search HEKTOR** (memory_search) for tool details, account info, workflows, history.',
+    '- HEKTOR has 35K+ documents indexed — TOOLS.md, AGENTS.md, USER.md, memory/*, everything.',
     '- Be direct and concise. Help, don\'t perform helpfulness.',
-    '- Use tools proactively — read before asking, search before guessing.',
+    '- Use tools proactively — search before asking, read before guessing.',
     '- When in group chats: participate, don\'t dominate.',
     '- Private things stay private. When in doubt, ask before external actions.',
     '- Write to memory files — mental notes don\'t survive restarts.',
+    '- Stage critical context in COMB (comb_stage) before session ends.',
   ].join('\n'));
 
   return parts.join('\n');

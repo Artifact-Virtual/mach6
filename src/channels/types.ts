@@ -253,6 +253,10 @@ export interface ChannelPolicy {
   selfId?: string;
   /** Sibling bot IDs — if a message @mentions a sibling but NOT us, yield */
   siblingBotIds?: string[];
+  /** Channel IDs where even owners must @mention to trigger response (strict ignore otherwise) */
+  strictMentionChannels?: string[];
+  /** Channel IDs to completely ignore — no processing, no response, no session creation */
+  ignoredChannels?: string[];
 }
 
 export interface SessionRoute {

@@ -24,6 +24,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BaseAdapter } from '../adapter.js';
 import { formatForChannel } from '../formatter.js';
+import { logInbound, logOutbound, logReaction } from '../message-logger.js';
 import type {
   ChannelCapabilities,
   ChannelConfig,

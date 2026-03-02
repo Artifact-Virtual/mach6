@@ -47,7 +47,10 @@ export async function runAgent(
   messages: Message[],
   config: RunnerConfig,
 ): Promise<RunResult> {
-  const maxIter = config.maxIterations ?? 25;
+  const initialMaxIter = config.maxIterations ?? 25;
+  const PULSE_EXPAND_THRESHOLD = 18;
+  const PULSE_EXPANDED_CAP = 100;
+  let maxIter = initialMaxIter;
   const maxCtx = config.maxContextTokens ?? 100_000;
   const allToolCalls: RunResult['toolCalls'] = [];
   const temperatureHistory: Array<{ iteration: number; category: TaskCategory; temperature: number }> = [];
@@ -57,6 +60,12 @@ export async function runAgent(
 
   while (iterations < maxIter) {
     iterations++;
+
+    // PULSE dynamic expansion: if approaching cap, expand to full budget
+    if (iterations >= PULSE_EXPAND_THRESHOLD && maxIter === initialMaxIter && initialMaxIter < PULSE_EXPANDED_CAP) {
+      maxIter = PULSE_EXPANDED_CAP;
+      console.log(`[PULSE] Expanding iteration cap ${initialMaxIter} → ${PULSE_EXPANDED_CAP} at iteration ${iterations}`);
+    }
 
     // Check if aborted (interrupt from bus)
     if (config.abortSignal?.aborted) {
