@@ -123,6 +123,10 @@ export class InboundRouter {
     const policy = this.getPolicy(source.channelType);
     if (!this.checkPolicy(policy, source)) return false;
 
+    // 2a. @end — universal conversation terminator. Any message containing @end
+    // signals "do not respond." Both bots honor this. No LLM turn, no reaction.
+    if (payload.text && /@end\b/i.test(payload.text)) return false;
+
     // 2b. Sibling cooldown — prevent echo loops between sibling bots
     if (policy.siblingBotIds?.includes(source.senderId)) {
       const cooldownKey = `${source.adapterId}:${source.chatId}`;
@@ -187,7 +191,16 @@ export class InboundRouter {
     }
 
     const isOwner = this.isOwner(policy, source.senderId);
-    if (isOwner) return true; // Owners bypass all policy
+    // Owners bypass DM policy but must respect mention-only in groups.
+    // This prevents the bot responding to every owner message in group chats.
+    if (isOwner) {
+      if (source.chatType === 'dm') return true;
+      // In groups: if policy is mention-only, owners must also @mention
+      if ((source.chatType === 'group' || source.chatType === 'channel') && policy.groupPolicy === 'mention-only') {
+        return this.isMentioned(policy, source);
+      }
+      return true; // Other group policies (open, allowlist) — owners still bypass
+    }
 
     if (source.chatType === 'dm') {
       switch (policy.dmPolicy) {
@@ -340,5 +353,10 @@ export class InboundRouter {
   isSiblingBot(channelType: string, senderId: string): boolean {
     const policy = this.getPolicy(channelType);
     return policy.siblingBotIds?.includes(senderId) ?? false;
+  }
+
+  /** Check if a sender is a known sibling bot using source info */
+  isSiblingSender(source: ChannelSource): boolean {
+    return this.isSiblingBot(source.channelType, source.senderId);
   }
 }

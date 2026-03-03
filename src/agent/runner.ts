@@ -8,6 +8,7 @@ import type { PolicyEngine } from '../tools/policy.js';
 import { sanitizeToolResult, logInjectionAttempt } from '../security/sanitizer.js';
 import { classifyTask, getTemperature } from './temperature.js';
 import type { TemperatureConfig, TaskCategory } from './temperature.js';
+import type { BlinkController } from './blink.js';
 
 /** Minimal interface for tool registries (satisfied by both ToolRegistry and SandboxedToolRegistry) */
 export interface ToolExecutor {
@@ -27,6 +28,7 @@ export interface RunnerConfig {
   policyEngine?: PolicyEngine;
   temperatureConfig?: TemperatureConfig;
   abortSignal?: AbortSignal;
+  blinkController?: BlinkController;
   onEvent?: (event: StreamEvent) => void;
   onToolStart?: (name: string, input: Record<string, unknown>) => void;
   onToolEnd?: (name: string, result: string) => void;
@@ -37,6 +39,7 @@ export interface RunResult {
   messages: Message[];
   toolCalls: { name: string; input: Record<string, unknown>; result: string }[];
   iterations: number;
+  maxIterationsHit: boolean;
   temperatureHistory?: Array<{ iteration: number; category: TaskCategory; temperature: number }>;
 }
 
@@ -78,6 +81,16 @@ export async function runAgent(
       currentMessages = await config.contextMonitor.manage(currentMessages);
     }
 
+    // BLINK: inject preparation message when approaching budget wall
+    if (config.blinkController) {
+      const remaining = maxIter - iterations;
+      if (config.blinkController.shouldPrepare(remaining)) {
+        const prepMsg = config.blinkController.getPrepareMessage();
+        currentMessages.push({ role: 'user', content: prepMsg });
+        console.log(`[BLINK] Prepare message injected at iteration ${iterations} (${remaining} remaining)`);
+      }
+    }
+
     // Check iteration limit with warning (Pain #12)
     if (config.policyEngine && config.sessionId) {
       const iterCheck = config.policyEngine.checkIteration(config.sessionId, iterations);
@@ -95,6 +108,7 @@ export async function runAgent(
           messages: currentMessages,
           toolCalls: allToolCalls,
           iterations,
+          maxIterationsHit: true,
           temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined,
         };
       }
@@ -186,7 +200,7 @@ export async function runAgent(
     // If no tool calls, we're done
     if (pendingToolCalls.length === 0) {
       console.log(`[runner] Agent complete after ${iterations} iterations, ${allToolCalls.length} total tool calls`);
-      return { text: textAccum, messages: currentMessages, toolCalls: allToolCalls, iterations, temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined };
+      return { text: textAccum, messages: currentMessages, toolCalls: allToolCalls, iterations, maxIterationsHit: false, temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined };
     }
 
     // Append assistant message with tool calls
@@ -257,6 +271,7 @@ export async function runAgent(
     messages: currentMessages,
     toolCalls: allToolCalls,
     iterations,
+    maxIterationsHit: true,
     temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined,
   };
 }

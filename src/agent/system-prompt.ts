@@ -13,6 +13,8 @@ export interface SystemPromptParams {
   chatType?: string;         // direct | group
   senderId?: string;
   extraContext?: string;
+  /** Override workspace files to load (for multi-persona support) */
+  workspaceFiles?: { path: string; label: string; required?: boolean }[];
 }
 
 /** Files loaded in order. Each becomes a labeled section. Missing files are silently skipped. */
@@ -90,7 +92,8 @@ export function buildSystemPrompt(params: SystemPromptParams): string {
   ].filter(Boolean).join('\n'));
 
   // ── Workspace files (personality, identity, protocols) ──
-  for (const file of WORKSPACE_FILES) {
+  const filesToLoad = params.workspaceFiles ?? WORKSPACE_FILES;
+  for (const file of filesToLoad) {
     const filePath = path.join(params.workspace, file.path);
     const content = readFileSafe(filePath, MAX_FILE_BYTES);
     if (content) {

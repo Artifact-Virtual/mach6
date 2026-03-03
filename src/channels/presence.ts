@@ -15,6 +15,7 @@ export interface TypingTarget {
 }
 
 type TypingFunction = (chatId: string, durationMs?: number) => Promise<void>;
+type PauseFunction = (chatId: string) => Promise<void>;
 
 interface ActiveTyping {
   target: TypingTarget;
@@ -85,8 +86,12 @@ export class PresenceManager {
   private activityTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // How often to refresh typing indicator (ms)
-  // WhatsApp composing lasts ~5s, Discord lasts ~10s
-  private refreshIntervalMs = 4000;
+  // WhatsApp composing actually persists ~25s on recipient screen.
+  // Discord typing lasts ~10s. We use per-adapter intervals to avoid
+  // the "bobbing bubble" effect where frequent refreshes cause the
+  // indicator to visually restart on the recipient's screen.
+  private defaultRefreshMs = 8000;   // Discord: safe default
+  private waRefreshMs = 20000;       // WhatsApp: refresh only near expiry (25s window)
 
   // Safety: max typing duration to prevent zombie typing (5 min)
   private maxTypingMs = 5 * 60 * 1000;
@@ -121,23 +126,32 @@ export class PresenceManager {
   /**
    * Start sustained typing indicator. Refreshes automatically
    * until stopTyping is called or maxTypingMs is reached.
+   *
+   * WhatsApp: single composing signal, refreshed every ~20s.
+   * WhatsApp composing persists ~25s on recipient screen, so
+   * refreshing every 20s keeps it alive without visual flicker.
+   * Discord: refreshed every ~8s (indicator lasts ~10s).
    */
   startTyping(target: TypingTarget): void {
     const key = `${target.adapterId}:${target.chatId}`;
 
-    // Already typing? Reset timer
+    // Already typing? Don't restart — avoids flicker from re-sending composing
     if (this.activeTyping.has(key)) {
-      this.stopTyping(target);
+      return;
     }
 
     const typingFn = this.typingFunctions.get(target.adapterId);
     if (!typingFn) return;
 
-    // Fire immediately
-    typingFn(target.chatId).catch(() => {});
+    // Fire immediately — Infinity tells adapter to skip auto-pause (we handle it in stopTyping)
+    typingFn(target.chatId, Infinity).catch(() => {});
 
     // Set activity to thinking (default state at start of turn)
     this.setActivity(THINKING_ACTIVITY);
+
+    // Pick refresh interval based on adapter type
+    const isWhatsApp = target.adapterId.includes('whatsapp');
+    const refreshMs = isWhatsApp ? this.waRefreshMs : this.defaultRefreshMs;
 
     // Set up refresh interval
     const interval = setInterval(() => {
@@ -151,8 +165,9 @@ export class PresenceManager {
         return;
       }
 
-      typingFn(target.chatId).catch(() => {});
-    }, this.refreshIntervalMs);
+      // Infinity = sustained mode, no auto-pause between refreshes
+      typingFn(target.chatId, Infinity).catch(() => {});
+    }, refreshMs);
 
     this.activeTyping.set(key, {
       target,
@@ -163,6 +178,7 @@ export class PresenceManager {
 
   /**
    * Stop typing indicator for a target.
+   * Sends 'paused' to WhatsApp to cleanly dismiss the composing bubble.
    */
   stopTyping(target: TypingTarget): void {
     const key = `${target.adapterId}:${target.chatId}`;
@@ -170,6 +186,14 @@ export class PresenceManager {
     if (active) {
       clearInterval(active.interval);
       this.activeTyping.delete(key);
+
+      // Send 'paused' to cleanly dismiss the composing indicator
+      // Without this, WhatsApp composing lingers for ~25s after we stop refreshing
+      const typingFn = this.typingFunctions.get(target.adapterId);
+      if (typingFn && target.adapterId.includes('whatsapp')) {
+        // Duration 0 = send paused immediately (adapter handles this)
+        typingFn(target.chatId, 0).catch(() => {});
+      }
     }
 
     // Return to idle when all typing stops

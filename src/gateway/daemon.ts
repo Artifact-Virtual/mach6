@@ -44,6 +44,7 @@ import { SessionManager } from '../sessions/manager.js';
 import { buildSystemPrompt } from '../agent/system-prompt.js';
 import { runAgent } from '../agent/runner.js';
 import { PulseBudgetManager } from '../agent/pulse.js';
+import { BlinkController } from '../agent/blink.js';
 import { loadConfig, type Mach6Config } from '../config/config.js';
 import type { Provider, ProviderConfig } from '../providers/types.js';
 import { anthropicProvider } from '../providers/anthropic.js';
@@ -58,19 +59,25 @@ import { McpBridge } from '../tools/mcp-bridge.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
+interface DiscordChannelConfig {
+  enabled: boolean;
+  token: string;
+  botId?: string;
+  /** Adapter ID — must be unique per bot instance (default: 'discord-main') */
+  adapterId?: string;
+  /** Other bot IDs to suppress responses to (prevents cross-bot echo) */
+  siblingBotIds?: string[];
+  policy?: Partial<ChannelPolicy>;
+  /** Override workspace files for system prompt (multi-persona) */
+  promptFiles?: { path: string; label: string }[];
+}
+
 interface GatewayConfig {
   /** Path to mach6.json */
   configPath?: string;
   /** Channels to enable */
   channels?: {
-    discord?: {
-      enabled: boolean;
-      token: string;
-      botId?: string;
-      /** Other bot IDs to suppress responses to (prevents cross-bot echo) */
-      siblingBotIds?: string[];
-      policy?: Partial<ChannelPolicy>;
-    };
+    discord?: DiscordChannelConfig;
     whatsapp?: {
       enabled: boolean;
       authDir: string;
@@ -79,6 +86,8 @@ interface GatewayConfig {
       policy?: Partial<ChannelPolicy>;
     };
   };
+  /** Additional Discord bot instances (multi-bot support) */
+  discordExtra?: DiscordChannelConfig[];
   /** Owner IDs across all channels */
   ownerIds?: string[];
   /** HTTP API port */
@@ -123,6 +132,8 @@ export class Mach6Gateway {
   private startTime = Date.now();
   private httpApi: HttpApiServer | null = null;
   private mcpBridges: McpBridge[] = [];
+  /** Per-adapter system prompt file overrides (adapterId → file list) */
+  private adapterPromptFiles = new Map<string, { path: string; label: string }[]>();
 
   constructor(gatewayConfig: GatewayConfig) {
     this.gatewayConfig = gatewayConfig;
@@ -310,33 +321,49 @@ export class Mach6Gateway {
     const channels = this.gatewayConfig.channels;
     if (!channels) return;
 
-    // Discord (non-fatal — if Discord fails, other adapters still start)
+    // ── Discord adapters (supports multiple bot instances) ─────────────
+    // Collect all Discord configs: primary + extras
+    const discordConfigs: DiscordChannelConfig[] = [];
     if (channels.discord?.enabled) {
+      discordConfigs.push(channels.discord);
+    }
+    if (this.gatewayConfig.discordExtra?.length) {
+      for (const extra of this.gatewayConfig.discordExtra) {
+        if (extra.enabled) discordConfigs.push(extra);
+      }
+    }
+
+    for (const dcfg of discordConfigs) {
+      const adapterId = dcfg.adapterId ?? 'discord-main';
       try {
-        console.log(info('Starting Discord adapter...'));
-        const adapter = new DiscordAdapter('discord-main');
+        console.log(info(`Starting Discord adapter ${palette.cyan}${adapterId}${palette.reset}...`));
+        const adapter = new DiscordAdapter(adapterId);
         const policy: ChannelPolicy = {
           dmPolicy: 'open',
           groupPolicy: 'mention-only',
           ownerIds: this.gatewayConfig.ownerIds ?? [],
           requireMention: true,
-          selfId: channels.discord.botId, // Required for mention detection
-          siblingBotIds: channels.discord.siblingBotIds ?? [],
-          ...channels.discord.policy,
+          selfId: dcfg.botId, // Required for mention detection
+          siblingBotIds: dcfg.siblingBotIds ?? [],
+          ...dcfg.policy,
         };
 
         await this.channelRegistry.register(
           adapter,
-          { token: channels.discord.token, botId: channels.discord.botId, siblingBotIds: channels.discord.siblingBotIds },
+          { token: dcfg.token, botId: dcfg.botId, siblingBotIds: dcfg.siblingBotIds },
           policy,
         );
-        console.log(ok(`Discord ${palette.green}connected${palette.reset}`));
-        presenceManager.registerAdapter('discord-main', (chatId) => adapter.typing(chatId));
+        console.log(ok(`Discord ${palette.cyan}${adapterId}${palette.reset} ${palette.green}connected${palette.reset}`));
+        presenceManager.registerAdapter(adapterId, (chatId, durationMs) => adapter.typing(chatId, durationMs));
         // Register Discord client for rich activity presence
         const discordClient = adapter.getClient();
-        if (discordClient) presenceManager.registerDiscordClient('discord-main', discordClient);
+        if (discordClient) presenceManager.registerDiscordClient(adapterId, discordClient);
+        // Store per-adapter prompt file overrides
+        if (dcfg.promptFiles?.length) {
+          this.adapterPromptFiles.set(adapterId, dcfg.promptFiles);
+        }
       } catch (err) {
-        console.log(warn(`Discord failed — ${(err as Error).message}`));
+        console.log(warn(`Discord ${adapterId} failed — ${(err as Error).message}`));
       }
     }
 
@@ -345,11 +372,15 @@ export class Mach6Gateway {
       try {
         console.log(info('Starting WhatsApp adapter...'));
         const adapter = new WhatsAppAdapter('whatsapp-main');
+        const waPhoneJid = channels.whatsapp.phoneNumber
+          ? `${channels.whatsapp.phoneNumber}@s.whatsapp.net`
+          : undefined;
         const policy: ChannelPolicy = {
           dmPolicy: 'allowlist',
           groupPolicy: 'mention-only',
           ownerIds: this.gatewayConfig.ownerIds ?? [],
           allowedSenders: this.gatewayConfig.ownerIds ?? [],
+          selfId: waPhoneJid, // Required for @mention detection in groups
           ...channels.whatsapp.policy,
         };
 
@@ -366,7 +397,7 @@ export class Mach6Gateway {
           policy,
         );
         console.log(ok(`WhatsApp ${palette.green}connected${palette.reset}`));
-        presenceManager.registerAdapter('whatsapp-main', (chatId) => adapter.typing(chatId));
+        presenceManager.registerAdapter('whatsapp-main', (chatId, durationMs) => adapter.typing(chatId, durationMs));
       } catch (err) {
         console.log(warn(`WhatsApp failed — ${(err as Error).message}`));
       }
@@ -469,38 +500,70 @@ export class Mach6Gateway {
           ...providerCfg,
         };
 
-        // Run agent
+        // Run agent with BLINK continuation
         console.log(`${palette.dim}  [http]${palette.reset} Agent turn for ${palette.violet}${sessionId}${palette.reset}`);
         const startMs = Date.now();
+        const blinkCtrl = new BlinkController({ enabled: true, maxDepth: 5, prepareAt: 3, cooldownMs: 1000 });
 
-        const result = await runAgent(session.messages, {
-          provider: this.provider,
-          providerConfig: provConfig,
-          toolRegistry: sandboxedTools,
-          sessionId,
-          maxIterations: this.pulseBudget.getEffectiveCap(),
-          abortSignal: controller.signal,
-          onEvent: (ev) => {
-            if (ev.type === 'usage') {
-              this.sessionManager.trackUsage(session, ev.usage.inputTokens, ev.usage.outputTokens);
+        let currentSessionMessages = session.messages;
+        let finalResult: Awaited<ReturnType<typeof runAgent>> | null = null;
+
+        while (blinkCtrl.shouldContinue()) {
+          const result = await runAgent(currentSessionMessages, {
+            provider: this.provider,
+            providerConfig: provConfig,
+            toolRegistry: sandboxedTools,
+            sessionId,
+            maxIterations: this.pulseBudget.getEffectiveCap(),
+            blinkController: blinkCtrl,
+            abortSignal: controller.signal,
+            onEvent: (ev) => {
+              if (ev.type === 'usage') {
+                this.sessionManager.trackUsage(session, ev.usage.inputTokens, ev.usage.outputTokens);
+              }
+            },
+            onToolStart: (name) => console.log(`  ${palette.violet}⚡ ${name}${palette.reset}`),
+            onToolEnd: (name) => console.log(`  ${palette.green}✓ ${name}${palette.reset}`),
+          });
+
+          if (result.maxIterationsHit && blinkCtrl.needsBlink(true)) {
+            blinkCtrl.recordBlink(result.iterations, result.toolCalls.length);
+            console.log(`${palette.dim}  [BLINK]${palette.reset} ${palette.yellow}⚡ Blink #${blinkCtrl.getState().depth}${palette.reset} (http) — continuing`);
+            currentSessionMessages = result.messages;
+            if (currentSessionMessages.length > 0) {
+              const last = currentSessionMessages[currentSessionMessages.length - 1];
+              if (last.role === 'assistant' && last.content === '[Max iterations reached]') {
+                currentSessionMessages.pop();
+              }
             }
-          },
-          onToolStart: (name) => console.log(`  ${palette.violet}⚡ ${name}${palette.reset}`),
-          onToolEnd: (name) => console.log(`  ${palette.green}✓ ${name}${palette.reset}`),
-        });
+            currentSessionMessages.push({ role: 'user', content: blinkCtrl.getResumeMessage() });
+            await new Promise(r => setTimeout(r, blinkCtrl.getCooldownMs()));
+            continue;
+          }
+
+          blinkCtrl.recordComplete(result.iterations, result.toolCalls.length);
+          finalResult = result;
+          break;
+        }
+
+        if (!finalResult) {
+          finalResult = { text: '[Blink depth exceeded]', messages: currentSessionMessages, toolCalls: [], iterations: 0, maxIterationsHit: true };
+        }
 
         // Save session
-        session.messages = result.messages;
-        if (result.text) {
-          session.messages.push({ role: 'assistant', content: result.text });
+        session.messages = finalResult.messages;
+        if (finalResult.text && finalResult.text !== '[Max iterations reached]' && finalResult.text !== '[Blink depth exceeded]') {
+          session.messages.push({ role: 'assistant', content: finalResult.text });
         }
         this.sessionManager.save(session);
 
-        // PULSE: record iteration count for adaptive budget
-        this.pulseBudget.recordSession(result.iterations);
+        // PULSE: record total iterations
+        const blinkState = blinkCtrl.getState();
+        const totalIter = blinkState.depth > 0 ? blinkState.totalIterations : finalResult.iterations;
+        this.pulseBudget.recordSession(totalIter);
 
         resolve({
-          text: result.text ?? '',
+          text: finalResult.text ?? '',
           sessionId,
           durationMs: Date.now() - startMs,
         });
@@ -551,6 +614,34 @@ export class Mach6Gateway {
 
   private async handleEnvelope(envelope: BusEnvelope): Promise<void> {
     const sessionId = envelope.sessionId!;
+
+    // ── Sibling Bot Loop Breaker ─────────────────────────────────────────
+    // Instead of passing sibling bot messages through the full LLM pipeline
+    // (which generates text responses that trigger echo loops), we react with
+    // an emoji. Reactions don't trigger MessageCreate — loop broken.
+    const router = this.channelRegistry.getRouter();
+    if (router.isSiblingSender(envelope.source)) {
+      const adapter = this.channelRegistry.get(envelope.source.adapterId);
+      if (adapter && typeof (adapter as any).react === 'function' && envelope.metadata.platformMessageId) {
+        try {
+          await (adapter as any).react(
+            envelope.source.chatId,
+            envelope.metadata.platformMessageId,
+            '👁️',
+          );
+          console.log(`${palette.dim}  [sibling]${palette.reset} Reacted 👁️ to ${palette.cyan}${envelope.source.senderName ?? envelope.source.senderId}${palette.reset} in ${envelope.source.chatId} ${palette.dim}(loop breaker)${palette.reset}`);
+        } catch (err) {
+          console.log(`${palette.dim}  [sibling]${palette.reset} React failed: ${err}`);
+        }
+      } else {
+        console.log(`${palette.dim}  [sibling]${palette.reset} Acknowledged ${palette.cyan}${envelope.source.senderName ?? envelope.source.senderId}${palette.reset} ${palette.dim}(no react capability)${palette.reset}`);
+      }
+      // Log the sibling message content for awareness, but do NOT process through LLM
+      if (envelope.payload.text) {
+        console.log(`${palette.dim}  [sibling]${palette.reset} ${palette.dim}Content: ${envelope.payload.text.slice(0, 200)}${palette.reset}`);
+      }
+      return; // ← This is the loop breaker. No LLM turn, no text response.
+    }
 
     // Check if there's already an active turn for this session
     if (this.activeTurns.has(sessionId)) {
@@ -612,7 +703,21 @@ export class Mach6Gateway {
     }
     this.channelRegistry.setSessionActive(sessionId, true);
 
-    // Start sustained typing (refreshes every 4s until response sent)
+    // ── WhatsApp Social Protocol ──────────────────────────────────────────
+    // Auto mark-read (blue ticks) + acknowledge receipt before processing.
+    // This gives immediate visual feedback that the message was received,
+    // without relying on the typing bubble which can be jarring.
+    if (envelope.source.channelType === 'whatsapp' && envelope.metadata.platformMessageId) {
+      const adapter = this.channelRegistry.get(envelope.source.adapterId);
+      if (adapter && typeof (adapter as any).markRead === 'function') {
+        (adapter as any).markRead(
+          envelope.source.chatId,
+          envelope.metadata.platformMessageId
+        ).catch(() => {});
+      }
+    }
+
+    // Start sustained typing (refreshes every 20s for WA, 8s for Discord)
     const typingTarget = { adapterId: envelope.source.adapterId, chatId: envelope.source.chatId };
     presenceManager.startTyping(typingTarget);
 
@@ -624,12 +729,15 @@ export class Mach6Gateway {
       });
 
       // Build channel-aware system prompt (refreshes workspace files each turn)
+      // Use per-adapter prompt files if configured (multi-persona support)
+      const adapterFiles = this.adapterPromptFiles.get(envelope.source.adapterId);
       const turnPrompt = buildSystemPrompt({
         workspace: this.config.workspace,
         tools: this.toolRegistry.list().map(t => t.name),
         channel: envelope.source.channelType,
         chatType: envelope.source.chatId.includes('@g.') ? 'group' : 'direct',
         senderId: envelope.source.senderId,
+        workspaceFiles: adapterFiles,
       });
       // Replace or insert system prompt (always fresh — workspace files may have changed)
       if (session.messages.length > 0 && session.messages[0].role === 'system') {
@@ -671,49 +779,98 @@ export class Mach6Gateway {
         ...providerCfg,
       };
 
-      // Run agent
+      // Run agent with BLINK continuation
       console.log(`\n${palette.dim}  [turn]${palette.reset} ${palette.violet}${sessionId}${palette.reset} ${palette.dim}via${palette.reset} ${envelope.source.channelType}${palette.dim}/${palette.reset}${envelope.source.chatId}`);
       const turnStartTime = Date.now();
-      const result = await runAgent(session.messages, {
-        provider: this.provider,
-        providerConfig: provConfig,
-        toolRegistry: sandboxedTools,
-        sessionId,
-        maxIterations: this.pulseBudget.getEffectiveCap(),
-        abortSignal: controller.signal,
-        onEvent: (ev) => {
-          if (ev.type === 'usage') {
-            this.sessionManager.trackUsage(session, ev.usage.inputTokens, ev.usage.outputTokens);
-            console.log(`  ${palette.dim}📊 +${ev.usage.inputTokens}in / +${ev.usage.outputTokens}out${palette.reset}`);
+      const blinkCtrl = new BlinkController({ enabled: true, maxDepth: 5, prepareAt: 3, cooldownMs: 1000 });
+
+      let currentSessionMessages = session.messages;
+      let finalResult: Awaited<ReturnType<typeof runAgent>> | null = null;
+
+      // BLINK loop: run agent, check if budget hit, blink and continue if needed
+      while (blinkCtrl.shouldContinue()) {
+        const result = await runAgent(currentSessionMessages, {
+          provider: this.provider,
+          providerConfig: provConfig,
+          toolRegistry: sandboxedTools,
+          sessionId,
+          maxIterations: this.pulseBudget.getEffectiveCap(),
+          blinkController: blinkCtrl,
+          abortSignal: controller.signal,
+          onEvent: (ev) => {
+            if (ev.type === 'usage') {
+              this.sessionManager.trackUsage(session, ev.usage.inputTokens, ev.usage.outputTokens);
+              console.log(`  ${palette.dim}📊 +${ev.usage.inputTokens}in / +${ev.usage.outputTokens}out${palette.reset}`);
+            }
+            if (ev.type === 'text_delta' || ev.type === 'done') {
+              presenceManager.llmStreaming();
+            }
+          },
+          onToolStart: (name) => {
+            console.log(`  ${palette.violet}⚡ ${name}${palette.reset}`);
+            presenceManager.toolStart(name);
+          },
+          onToolEnd: (name, res) => {
+            const preview = res.length > 100 ? res.slice(0, 100) + '...' : res;
+            console.log(`  ${palette.green}✓ ${name}${palette.reset} ${palette.dim}${preview.split('\n')[0]}${palette.reset}`);
+            presenceManager.toolEnd(name);
+          },
+        });
+
+        // Check if BLINK is needed
+        if (result.maxIterationsHit && blinkCtrl.needsBlink(true)) {
+          // Record the blink
+          blinkCtrl.recordBlink(result.iterations, result.toolCalls.length);
+          console.log(`${palette.dim}  [BLINK]${palette.reset} ${palette.yellow}⚡ Blink #${blinkCtrl.getState().depth}${palette.reset} — continuing with fresh budget`);
+
+          // Save intermediate state so nothing is lost
+          currentSessionMessages = result.messages;
+          // Strip the "[Max iterations reached]" text — it's an artifact, not a real response
+          if (currentSessionMessages.length > 0) {
+            const last = currentSessionMessages[currentSessionMessages.length - 1];
+            if (last.role === 'assistant' && last.content === '[Max iterations reached]') {
+              currentSessionMessages.pop();
+            }
           }
-          // Update presence when LLM starts streaming
-          if (ev.type === 'text_delta' || ev.type === 'done') {
-            presenceManager.llmStreaming();
-          }
-        },
-        onToolStart: (name) => {
-          console.log(`  ${palette.violet}⚡ ${name}${palette.reset}`);
-          presenceManager.toolStart(name);
-        },
-        onToolEnd: (name, res) => {
-          const preview = res.length > 100 ? res.slice(0, 100) + '...' : res;
-          console.log(`  ${palette.green}✓ ${name}${palette.reset} ${palette.dim}${preview.split('\n')[0]}${palette.reset}`);
-          presenceManager.toolEnd(name);
-        },
-      });
+
+          // Inject resume message
+          const resumeMsg = blinkCtrl.getResumeMessage();
+          currentSessionMessages.push({ role: 'user', content: resumeMsg });
+
+          // Cooldown before next cycle
+          await new Promise(r => setTimeout(r, blinkCtrl.getCooldownMs()));
+
+          // Loop continues — fresh runAgent with full budget
+          continue;
+        }
+
+        // Normal completion or blink capped — we're done
+        blinkCtrl.recordComplete(result.iterations, result.toolCalls.length);
+        finalResult = result;
+        break;
+      }
+
+      // If loop exhausted without a finalResult (shouldn't happen but safety net)
+      if (!finalResult) {
+        console.warn(`[BLINK] Loop ended without result — depth capped`);
+        finalResult = { text: '[Blink depth exceeded]', messages: currentSessionMessages, toolCalls: [], iterations: 0, maxIterationsHit: true };
+      }
 
       const turnElapsed = Date.now() - turnStartTime;
-      console.log(`${palette.dim}  [turn]${palette.reset} Complete ${palette.dim}— ${turnElapsed}ms, ${result.iterations} iter, ${result.toolCalls.length} tools${palette.reset}`);
+      const blinkState = blinkCtrl.getState();
+      const blinkInfo = blinkState.depth > 0 ? `, ${blinkState.depth} blinks, ${blinkState.totalIterations} total iter` : '';
+      console.log(`${palette.dim}  [turn]${palette.reset} Complete ${palette.dim}— ${turnElapsed}ms, ${finalResult.iterations} iter, ${finalResult.toolCalls.length} tools${blinkInfo}${palette.reset}`);
 
       // Save session
-      session.messages = result.messages;
-      if (result.text) {
-        session.messages.push({ role: 'assistant', content: result.text });
+      session.messages = finalResult.messages;
+      if (finalResult.text && finalResult.text !== '[Max iterations reached]' && finalResult.text !== '[Blink depth exceeded]') {
+        session.messages.push({ role: 'assistant', content: finalResult.text });
       }
       this.sessionManager.save(session);
 
-      // PULSE: record iteration count for adaptive budget
-      const pulseResult = this.pulseBudget.recordSession(result.iterations);
+      // PULSE: record TOTAL iteration count (across all blinks)
+      const totalIter = blinkState.depth > 0 ? blinkState.totalIterations : finalResult.iterations;
+      const pulseResult = this.pulseBudget.recordSession(totalIter);
       if (pulseResult.reverted) {
         console.log(`${palette.dim}  [PULSE]${palette.reset} Budget reverted to ${pulseResult.effectiveCap} — light workload detected`);
       }
@@ -722,14 +879,15 @@ export class Mach6Gateway {
       this.sessionManager.autoArchive();
 
       // Send response back through the channel
-      if (result.text && result.text !== 'NO_REPLY' && result.text !== 'HEARTBEAT_OK') {
-        console.log(`${palette.dim}  [send]${palette.reset} → ${envelope.source.adapterId}/${envelope.source.chatId} ${palette.dim}(${result.text.length} chars)${palette.reset}`);
+      if (finalResult.text && finalResult.text !== 'NO_REPLY' && finalResult.text !== 'HEARTBEAT_OK'
+          && finalResult.text !== '[Max iterations reached]' && finalResult.text !== '[Blink depth exceeded]') {
+        console.log(`${palette.dim}  [send]${palette.reset} → ${envelope.source.adapterId}/${envelope.source.chatId} ${palette.dim}(${finalResult.text.length} chars)${palette.reset}`);
         try {
           const sendResult = await this.channelRegistry.send(
             envelope.source.adapterId,
             envelope.source.chatId,
             {
-              content: result.text,
+              content: finalResult.text,
               replyToId: envelope.metadata.platformMessageId,
             },
           );
@@ -738,7 +896,7 @@ export class Mach6Gateway {
           console.error(`  ${palette.red}✗ [send]${palette.reset} ${sendErr}`);
         }
       } else {
-        console.log(`${palette.dim}  [turn]${palette.reset} No response ${palette.dim}(${result.text ? result.text.slice(0, 50) : 'null'})${palette.reset}`);
+        console.log(`${palette.dim}  [turn]${palette.reset} No response ${palette.dim}(${finalResult.text ? finalResult.text.slice(0, 50) : 'null'})${palette.reset}`);
       }
 
     } catch (err) {
@@ -910,6 +1068,7 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
         enabled: !!process.env.DISCORD_BOT_TOKEN || !!(config as any).discord?.token,
         token: process.env.DISCORD_BOT_TOKEN ?? (config as any).discord?.token ?? '',
         botId: (config as any).discord?.botId,
+        adapterId: (config as any).discord?.adapterId ?? 'discord-main',
         siblingBotIds: (config as any).discord?.siblingBotIds,
         policy: (config as any).discord?.policy,
       },
@@ -921,6 +1080,16 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
         policy: (config as any).whatsapp?.policy,
       },
     },
+    // Additional Discord bot instances
+    discordExtra: ((config as any).discordExtra ?? []).map((extra: any) => ({
+      enabled: extra.enabled !== false,
+      token: extra.token ?? '',
+      botId: extra.botId,
+      adapterId: extra.adapterId ?? `discord-${extra.botId ?? 'extra'}`,
+      siblingBotIds: extra.siblingBotIds,
+      policy: extra.policy,
+      promptFiles: extra.promptFiles,
+    })),
     apiPort: (config as any).apiPort ?? 3006,
   };
 

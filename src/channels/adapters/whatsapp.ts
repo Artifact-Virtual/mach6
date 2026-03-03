@@ -505,14 +505,41 @@ export class WhatsAppAdapter extends BaseAdapter {
     }
   }
 
+  /**
+   * Send typing (composing) indicator.
+   * @param chatId - Chat to show typing in
+   * @param durationMs - Controls behavior:
+   *   - `> 0 && finite`: One-shot composing, auto-pauses after durationMs
+   *   - `Infinity`: Sustained composing, no auto-pause (PresenceManager handles lifecycle)
+   *   - `0`: Just send 'paused' — used by PresenceManager.stopTyping() to dismiss bubble
+   */
   async typing(chatId: string, durationMs = 3000): Promise<void> {
     if (!this.socket) return;
     try {
+      if (durationMs === 0) {
+        // Explicit pause — dismiss composing bubble immediately
+        await this.socket.sendPresenceUpdate('paused', chatId);
+        return;
+      }
       await this.socket.presenceSubscribe(chatId);
       await this.socket.sendPresenceUpdate('composing', chatId);
-      setTimeout(() => {
-        this.socket?.sendPresenceUpdate('paused', chatId).catch(() => {});
-      }, durationMs);
+      // Only auto-pause for one-shot typing calls.
+      // Sustained typing (PresenceManager) passes Infinity — pause is sent by stopTyping().
+      if (durationMs > 0 && isFinite(durationMs)) {
+        setTimeout(() => {
+          this.socket?.sendPresenceUpdate('paused', chatId).catch(() => {});
+        }, durationMs);
+      }
+    } catch { /* ignore */ }
+  }
+
+  /**
+   * Explicitly pause typing indicator. Called when a turn ends.
+   */
+  async pauseTyping(chatId: string): Promise<void> {
+    if (!this.socket) return;
+    try {
+      await this.socket.sendPresenceUpdate('paused', chatId);
     } catch { /* ignore */ }
   }
 
