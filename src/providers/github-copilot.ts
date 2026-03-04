@@ -120,7 +120,7 @@ async function resolveCopilotToken(): Promise<{ token: string; baseUrl: string }
   const res = await fetch(COPILOT_TOKEN_URL, {
     method: 'GET',
     headers: { Accept: 'application/json', Authorization: `Bearer ${ghToken}` },
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`Copilot token exchange failed: HTTP ${res.status}`);
 

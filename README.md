@@ -21,7 +21,7 @@ A persistent daemon that connects messaging platforms, LLM providers, and tool e
 
 ```bash
 # Clone & build
-git clone https://github.com/amuzetnoM/mach6.git
+git clone https://github.com/Artifact-Virtual/mach6.git
 cd mach6
 npm install && npm run build
 
@@ -413,7 +413,9 @@ mach6/
 - **JID normalization** for WhatsApp Baileys v7 (device suffix stripping)
 - **Abort signal propagation** through agent runner → LLM stream → tool execution
 - **MCP bridge** for connecting external tool servers
+- **MCP server mode** — expose Mach6 tools to external agents and editors
 - **Sibling bot yield** — @mention one bot, only that one responds
+- **Anti-loop system** — structural echo loop prevention in multi-bot environments
 
 ---
 
@@ -421,10 +423,12 @@ mach6/
 
 | Metric | Value |
 |--------|-------|
-| Lines of TypeScript | ~8,400 |
-| Built-in tools | 18 |
+| Lines of TypeScript | ~13,800 |
+| Source files | 66 |
+| Built-in tools | 14+ |
 | LLM providers | 4 |
 | Channel adapters | 2 + HTTP API |
+| Documentation files | 28 |
 | Cold boot to connected | ~2.3s |
 | External runtime deps | Node.js only |
 
@@ -456,6 +460,8 @@ All paths resolved via `os.tmpdir()` and `os.homedir()` — zero hardcoded Unix 
 | **Feb 22, 2026** | 14/14 smoke tests. 20 hardening fixes. Flipped to production same day. |
 | **Feb 23, 2026** | Open-sourced. MIT license. |
 | **Feb 28, 2026** | Cross-platform (Windows/Linux/macOS). CLI wizard. v1.0.0. |
+| **Mar 3, 2026** | Multi-bot coordination, ATM, sibling yield. v1.3.0. |
+| **Mar 5, 2026** | MCP server, anti-loop, degradation protection. v1.4.0. |
 
 ---
 

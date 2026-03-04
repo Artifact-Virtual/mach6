@@ -28,8 +28,8 @@ export const execTool: ToolDefinition = {
     const SELF_KILL_PATTERNS = [
       /systemctl\s+(stop|restart|disable)\s+mach6/i,
       /kill\s+.*mach6|pkill.*mach6/i,
-      />\s*\/home\/adam\/\.local\/bin\/ava/,
-      /write.*\/home\/adam\/\.local\/bin\/ava/i,
+      />\s*.*\bmach6\b.*$/,
+      /write.*\bmach6\b.*\bbin\b/i,
     ];
     for (const pat of SELF_KILL_PATTERNS) {
       if (pat.test(command)) {

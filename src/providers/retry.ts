@@ -1,6 +1,6 @@
 // Mach6 — Simple retry wrapper for provider fetch calls
 
-const RETRY_DELAYS = [1000, 2000, 4000];
+const RETRY_DELAYS = [2000, 5000, 10000];
 
 // 400-class errors that are transient (backend quirks, not user errors)
 const RETRYABLE_400_PATTERNS = [
@@ -18,7 +18,11 @@ export async function fetchWithRetry(url: string, init: RequestInit): Promise<Re
   let lastError: Error | undefined;
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
     try {
-      const res = await fetch(url, init);
+      // On retries, ensure a fresh abort signal (previous may have timed out)
+      const effectiveInit = attempt > 0 && init.signal instanceof AbortSignal
+        ? { ...init, signal: AbortSignal.timeout(120_000) }
+        : init;
+      const res = await fetch(url, effectiveInit);
       if (res.ok) return res;
 
       // 401 — token expired (e.g., copilot session token). Invalidate cache and retry once.

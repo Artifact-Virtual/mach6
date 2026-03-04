@@ -27,3 +27,9 @@ desktop.ini
 # WhatsApp auth (contains session keys)
 whatsapp-auth/
 *.tgz
+
+# Local runtime directories — not part of source
+.ava/
+comb/
+hektor/
+mach6-core/

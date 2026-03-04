@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.4.0 — MCP Server, Anti-Loop & Degradation Protection (2026-03-05)
+
+### Features
+- **MCP server mode** — expose Mach6 tools as an MCP server for external agents and editors
+- **Anti-loop system** — structural prevention of bot echo loops in multi-bot Discord environments. Detects coordination phrases, suppresses recursive mentions, maintains normal flow when safe
+- **Systemd service integration** — production-grade process management with auto-restart, resource limits, and journal logging
+
+### Improvements
+- **Provider retry hardening** — increased retry delays (2s/5s/10s), fresh abort signals on retry to prevent stale timeout propagation
+- **GitHub Copilot timeout** — extended token exchange timeout from 15s to 30s for slower networks
+- **Source sanitization** — all hardcoded paths replaced with portable `process.cwd()` resolution
+- **Full documentation suite** — 28 docs across 7 sections, GitBook-compatible structure
+
+### Stats
+- 66 source files, ~13,800 lines of TypeScript
+- 14+ built-in tools + MCP bridge + MCP server
+- 4 LLM providers (GitHub Copilot, Anthropic, OpenAI, Gladius)
+- 2 channel adapters + HTTP API
+- 28 documentation files
+
+---
+
 ## v1.3.0 — Multi-Bot Coordination & ATM (2026-03-03)
 
 ### Features
