@@ -239,24 +239,24 @@ export interface ChannelAdapter {
 export interface ChannelPolicy {
   /** DM handling: open to all, allowlist only, or deny all */
   dmPolicy: 'open' | 'allowlist' | 'deny';
-  /** Group handling */
+  /** Group handling — kept for config compat. Router uses @mention-only protocol. */
   groupPolicy: 'open' | 'allowlist' | 'mention-only' | 'deny';
-  /** Allowed sender IDs (for allowlist mode) */
+  /** Allowed sender IDs (for DM allowlist mode) */
   allowedSenders?: string[];
-  /** Allowed group IDs (for group allowlist) */
+  /** Allowed group IDs — kept for config compat */
   allowedGroups?: string[];
-  /** Owner IDs — always allowed, always high priority */
+  /** Owner IDs — always allowed in DMs, always high priority */
   ownerIds: string[];
-  /** Require @mention in groups to trigger response */
-  requireMention?: boolean;
-  /** Bot's own ID on this platform (for mention detection) */
+  /** Bot's own ID on this platform (REQUIRED for @mention detection) */
   selfId?: string;
-  /** Sibling bot IDs — if a message @mentions a sibling but NOT us, yield */
-  siblingBotIds?: string[];
-  /** Channel IDs where even owners must @mention to trigger response (strict ignore otherwise) */
-  strictMentionChannels?: string[];
   /** Channel IDs to completely ignore — no processing, no response, no session creation */
   ignoredChannels?: string[];
+  // ── Day 21: Mention-Only Protocol ──────────────────────────────────
+  // In groups/channels, a message is processed ONLY if it @mentions selfId.
+  // When responding, include @mention of target. When not responding, either
+  // react with emoji or send without @mention (humans read it, bots ignore it).
+  // siblingBotIds, requireMention, strictMentionChannels — REMOVED.
+  // The @mention check is the ONLY routing rule. No cooldowns. No complexity.
 }
 
 export interface SessionRoute {

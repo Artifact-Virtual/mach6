@@ -505,6 +505,28 @@ export class WhatsAppAdapter extends BaseAdapter {
     }
   }
 
+  // ── Group Management ───────────────────────────────────────────────────
+
+  async groupUpdateSubject(groupJid: string, subject: string): Promise<void> {
+    if (!this.socket) return;
+    try {
+      await this.socket.groupUpdateSubject(groupJid, subject);
+      console.log(`[${this.id}] Group subject updated: ${groupJid} → "${subject}"`);
+    } catch (err) {
+      console.error(`[${this.id}] Group subject update failed:`, err);
+    }
+  }
+
+  async groupUpdateDescription(groupJid: string, description: string): Promise<void> {
+    if (!this.socket) return;
+    try {
+      await this.socket.groupUpdateDescription(groupJid, description);
+      console.log(`[${this.id}] Group description updated: ${groupJid}`);
+    } catch (err) {
+      console.error(`[${this.id}] Group description update failed:`, err);
+    }
+  }
+
   /**
    * Send typing (composing) indicator.
    * @param chatId - Chat to show typing in

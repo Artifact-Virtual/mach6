@@ -4,6 +4,24 @@
  * Sits between channel adapters and the message bus.
  * Handles: policy enforcement, session routing, priority assignment,
  * deduplication, interrupt detection.
+ * 
+ * === MENTION-ONLY PROTOCOL (Day 21 — Ali's design) ===
+ * 
+ * ONE RULE FOR ALL BOTS:
+ * 
+ * A bot processes a message IF AND ONLY IF:
+ *   1. It's a DM from an allowed sender, OR
+ *   2. The message contains @mention of this bot's ID
+ * 
+ * When a bot WANTS to respond → include @mention of the target
+ * When a bot does NOT want to respond → either:
+ *   a) React with emoji (acknowledged, no text, no loop)
+ *   b) Send text WITHOUT any @mention → hits chat, humans read it, no bot picks it up
+ * 
+ * This kills echo loops structurally. No cooldown timers. No sibling tracking.
+ * No complex routing policies. Just: "does this message mention ME? No → ignore."
+ * 
+ * @end in any message = universal stop. No bot processes it. Period.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -18,12 +36,8 @@ import type {
 import type { Mach6Bus } from './bus.js';
 
 // ─── WhatsApp JID Normalization ────────────────────────────────────────────
-// Baileys v7 uses JIDs with device suffix: "1234567890:5@s.whatsapp.net"
-// Config stores them without suffix: "1234567890@s.whatsapp.net"
-// Normalize by stripping the device part before comparison.
 
 function normalizeJid(jid: string): string {
-  // Strip device suffix from WhatsApp JIDs: "num:device@s.whatsapp.net" → "num@s.whatsapp.net"
   return jid.replace(/:\d+@s\.whatsapp\.net$/, '@s.whatsapp.net');
 }
 
@@ -47,7 +61,7 @@ const INTERRUPT_PATTERNS = [
 // ─── Deduplication ─────────────────────────────────────────────────────────
 
 class DeduplicationCache {
-  private seen = new Map<string, number>(); // messageId → timestamp
+  private seen = new Map<string, number>();
   private readonly maxSize: number;
   private readonly ttlMs: number;
 
@@ -56,11 +70,9 @@ class DeduplicationCache {
     this.ttlMs = ttlMs;
   }
 
-  /** Returns true if this is a duplicate */
   check(id: string): boolean {
     const now = Date.now();
     this.evict(now);
-
     if (this.seen.has(id)) return true;
     this.seen.set(id, now);
     return false;
@@ -68,11 +80,9 @@ class DeduplicationCache {
 
   private evict(now: number): void {
     if (this.seen.size < this.maxSize) return;
-    // Remove expired entries
     for (const [id, ts] of this.seen) {
       if (now - ts > this.ttlMs) this.seen.delete(id);
     }
-    // If still over, remove oldest
     if (this.seen.size >= this.maxSize) {
       const oldest = this.seen.keys().next().value;
       if (oldest) this.seen.delete(oldest);
@@ -89,7 +99,7 @@ export interface RouterConfig {
   defaultPolicy?: ChannelPolicy;
   /** Global owner IDs — always allowed on any channel */
   globalOwnerIds?: string[];
-  /** Active session tracking — which sessions have an agent turn in progress */
+  /** Active session tracking */
   getActiveSessions?: () => Set<string>;
 }
 
@@ -97,13 +107,8 @@ export class InboundRouter {
   private bus: Mach6Bus;
   private config: RouterConfig;
   private dedup = new DeduplicationCache();
-  private routes = new Map<string, SessionRoute>(); // "adapterId:chatId" → route
+  private routes = new Map<string, SessionRoute>();
   private sessionCounter = 0;
-  /** Sibling conversation turn tracking — prevents echo loops between sibling bots.
-   *  Key: "adapterId:chatId", Value: timestamp of last response we sent to a sibling in that channel. */
-  private siblingLastResponse = new Map<string, number>();
-  /** Minimum milliseconds between processing sibling messages in the same channel. */
-  private static readonly SIBLING_COOLDOWN_MS = 10_000; // 10 seconds
 
   constructor(bus: Mach6Bus, config: RouterConfig) {
     this.bus = bus;
@@ -119,30 +124,21 @@ export class InboundRouter {
     const dedupKey = platformMessageId ?? `${source.adapterId}:${source.chatId}:${Date.now()}`;
     if (this.dedup.check(dedupKey)) return false;
 
-    // 2. Policy check
+    // 2. @end — universal conversation terminator. Any message containing @end
+    // signals "do not respond." All bots honor this. No LLM turn, no reaction.
+    if (payload.text && /@end\b/i.test(payload.text)) return false;
+
+    // 3. Policy check (mention-only protocol)
     const policy = this.getPolicy(source.channelType);
     if (!this.checkPolicy(policy, source)) return false;
 
-    // 2a. @end — universal conversation terminator. Any message containing @end
-    // signals "do not respond." Both bots honor this. No LLM turn, no reaction.
-    if (payload.text && /@end\b/i.test(payload.text)) return false;
-
-    // 2b. Sibling cooldown — prevent echo loops between sibling bots
-    if (policy.siblingBotIds?.includes(source.senderId)) {
-      const cooldownKey = `${source.adapterId}:${source.chatId}`;
-      const lastResponse = this.siblingLastResponse.get(cooldownKey);
-      if (lastResponse && (Date.now() - lastResponse) < InboundRouter.SIBLING_COOLDOWN_MS) {
-        return false; // Too soon — let the conversation breathe
-      }
-    }
-
-    // 3. Resolve session (keyed per adapter to avoid session collision between siblings)
+    // 4. Resolve session
     const sessionId = this.resolveSession(source);
 
-    // 4. Determine priority
+    // 5. Determine priority
     const priority = this.assignPriority(policy, source, payload, sessionId);
 
-    // 5. Build envelope
+    // 6. Build envelope
     const envelope: BusEnvelope = {
       id: randomUUID(),
       timestamp: Date.now(),
@@ -156,7 +152,7 @@ export class InboundRouter {
       },
     };
 
-    // 6. Publish to bus
+    // 7. Publish to bus
     this.bus.publish(envelope);
     return true;
   }
@@ -171,38 +167,22 @@ export class InboundRouter {
     };
   }
 
+  /**
+   * Mention-Only Protocol (Day 21):
+   * 
+   * DMs: allowed senders get through (allowlist) or everyone (open)
+   * Groups/Channels: message MUST contain @mention of this bot's selfId
+   * 
+   * That's it. No sibling yield. No groupPolicy modes. No requireMention toggle.
+   * One rule: @mention me or I don't respond.
+   */
   private checkPolicy(policy: ChannelPolicy, source: ChannelSource): boolean {
-    // Sibling bot yield: if message explicitly @mentions a sibling bot but NOT us, yield.
-    // This applies even for owners — ensures @Plug → only Plug, @AVA → only AVA.
-    // No mention at all → both respond (owner bypass or normal policy applies).
-    if (policy.siblingBotIds?.length && policy.selfId && source.mentions?.length) {
-      const mentionsMe = source.mentions.includes(policy.selfId);
-      const mentionsSibling = source.mentions.some(id => policy.siblingBotIds!.includes(id));
-      if (mentionsSibling && !mentionsMe) return false;
-    }
-
-    // Ignored channels: completely blocked — no processing, no response, no session.
+    // Ignored channels: completely blocked
     if (policy.ignoredChannels?.includes(source.chatId)) return false;
 
-    // Strict-mention channels: even owners must @mention to trigger response.
-    // These are channels where the bot should only observe unless explicitly called.
-    if (policy.strictMentionChannels?.includes(source.chatId)) {
-      return this.isMentioned(policy, source);
-    }
-
-    const isOwner = this.isOwner(policy, source.senderId);
-    // Owners bypass DM policy but must respect mention-only in groups.
-    // This prevents the bot responding to every owner message in group chats.
-    if (isOwner) {
-      if (source.chatType === 'dm') return true;
-      // In groups: if policy is mention-only, owners must also @mention
-      if ((source.chatType === 'group' || source.chatType === 'channel') && policy.groupPolicy === 'mention-only') {
-        return this.isMentioned(policy, source);
-      }
-      return true; // Other group policies (open, allowlist) — owners still bypass
-    }
-
+    // DMs — use DM policy (owner bypass, allowlist, open, deny)
     if (source.chatType === 'dm') {
+      if (this.isOwner(policy, source.senderId)) return true;
       switch (policy.dmPolicy) {
         case 'open': return true;
         case 'allowlist': return jidInList(source.senderId, policy.allowedSenders ?? []);
@@ -210,18 +190,9 @@ export class InboundRouter {
       }
     }
 
-    if (source.chatType === 'group' || source.chatType === 'channel') {
-      switch (policy.groupPolicy) {
-        case 'open': return true;
-        case 'allowlist': return jidInList(source.chatId, policy.allowedGroups ?? []);
-        case 'mention-only': return this.isMentioned(policy, source);
-        case 'deny': return false;
-      }
-    }
-
-    // Threads inherit parent policy (treat as group)
-    if (source.chatType === 'thread') {
-      return policy.groupPolicy !== 'deny';
+    // Groups, Channels, Threads — ONLY respond if @mentioned
+    if (source.chatType === 'group' || source.chatType === 'channel' || source.chatType === 'thread') {
+      return this.isMentioned(policy, source);
     }
 
     return false;
@@ -241,7 +212,6 @@ export class InboundRouter {
   // ── Session Resolution ─────────────────────────────────────────────────
 
   private resolveSession(source: ChannelSource): string {
-    // Key includes adapterId so sibling bots get separate sessions for the same channel
     const routeKey = `${source.adapterId}:${source.chatId}`;
     const existing = this.routes.get(routeKey);
 
@@ -250,7 +220,6 @@ export class InboundRouter {
       return existing.sessionId;
     }
 
-    // Create new session route
     const sessionId = `${source.adapterId}-${source.chatId}-${++this.sessionCounter}`;
     this.routes.set(routeKey, {
       channelType: source.channelType,
@@ -270,59 +239,42 @@ export class InboundRouter {
     payload: InboundPayload,
     sessionId: string,
   ): MessagePriority {
-    // Non-text payloads
     if (payload.type === 'typing' || payload.type === 'presence') return 'background';
     if (payload.type === 'reaction') return 'low';
 
     const isOwner = this.isOwner(policy, source.senderId);
     const text = payload.text?.trim() ?? '';
 
-    // Check if this session has an active agent turn
     const activeSessions = this.config.getActiveSessions?.() ?? new Set();
     const sessionActive = activeSessions.has(sessionId);
 
-    // Owner message during active turn → interrupt
     if (isOwner && sessionActive) {
-      // Check for explicit interrupt patterns
       if (INTERRUPT_PATTERNS.some(p => p.test(text))) {
         return 'interrupt';
       }
-      // Owner sending anything during active turn is at least high priority
-      // The bus coalesce logic will handle rapid-fire messages
       return 'high';
     }
 
-    // Owner message (no active turn) → high
     if (isOwner) return 'high';
-
-    // DM from non-owner → normal
     if (source.chatType === 'dm') return 'normal';
 
-    // Group mention → normal
-    if (source.chatType === 'group' && this.isMentioned(policy, source)) return 'normal';
-
-    // Group without mention → low
-    return 'low';
+    return 'normal'; // If we got here, we were @mentioned — that deserves normal priority
   }
 
   // ── Route Management ───────────────────────────────────────────────────
 
-  /** Get all active routes */
   getRoutes(): SessionRoute[] {
     return Array.from(this.routes.values());
   }
 
-  /** Get session ID for an adapter + chat */
   getSessionId(adapterId: string, chatId: string): string | undefined {
     return this.routes.get(`${adapterId}:${chatId}`)?.sessionId;
   }
 
-  /** Manually set a route (for restoring state) */
   setRoute(route: SessionRoute): void {
     this.routes.set(`${route.channelType}:${route.chatId}`, route);
   }
 
-  /** Clean up stale routes (not active for given duration) */
   pruneRoutes(maxIdleMs: number): number {
     const now = Date.now();
     let pruned = 0;
@@ -335,28 +287,7 @@ export class InboundRouter {
     return pruned;
   }
 
-  /** Update policy for a channel */
   setPolicy(channelType: string, policy: ChannelPolicy): void {
     this.config.policies.set(channelType, policy);
-  }
-
-  // ── Sibling Coordination ───────────────────────────────────────────────
-
-  /** Record that we just responded to a sibling bot in this channel.
-   *  The cooldown prevents our sibling from immediately processing our response,
-   *  giving turn-taking a natural rhythm instead of an infinite loop. */
-  recordSiblingResponse(adapterId: string, chatId: string): void {
-    this.siblingLastResponse.set(`${adapterId}:${chatId}`, Date.now());
-  }
-
-  /** Check if a sender is a known sibling bot */
-  isSiblingBot(channelType: string, senderId: string): boolean {
-    const policy = this.getPolicy(channelType);
-    return policy.siblingBotIds?.includes(senderId) ?? false;
-  }
-
-  /** Check if a sender is a known sibling bot using source info */
-  isSiblingSender(source: ChannelSource): boolean {
-    return this.isSiblingBot(source.channelType, source.senderId);
   }
 }

@@ -171,39 +171,14 @@ export class DiscordAdapter extends BaseAdapter {
   private handleMessage(msg: DiscordMessage): void {
     // Ignore own messages
     if (msg.author.id === this.botId) return;
-    // Ignore other bots — but never ignore siblings
+    // Ignore non-sibling bots (random bots in the server)
+    // Sibling bots ARE allowed through — the router's @mention check handles loop prevention
     if (msg.author.bot && !this.siblingBotIds.has(msg.author.id)) return;
 
-    // ── ANTI-LOOP SYSTEM: Check for mention suppression ──
-    const shouldSuppress = this.shouldSuppressMentions(msg.content);
-    
     const source = this.buildSource(msg);
     const payload = this.buildPayload(msg);
 
     this.emit(source, payload, msg.id);
-  }
-
-  private shouldSuppressMentions(content: string): boolean {
-    // Look for explicit suppression signals
-    if (content.toLowerCase().includes('@end')) return true;
-    
-    // Check for loop prevention keywords
-    const suppressKeywords = [
-      'loop', 'echo', "don't respond", 'no mention', 'suppress', 'quiet',
-      'prevent loop', 'without mention', 'loop prevention', 'echo prevention'
-    ];
-    
-    return suppressKeywords.some(keyword => 
-      content.toLowerCase().includes(keyword)
-    );
-  }
-
-  private stripMentions(content: string): string {
-    // Remove Discord mentions: <@123456789> and <@!123456789>
-    content = content.replace(/<@!?\d+>/g, '');
-    // Remove @username patterns
-    content = content.replace(/@\w+/g, '');
-    return content.trim();
   }
 
   private handleReaction(reaction: any, user: any, remove: boolean): void {
@@ -338,21 +313,8 @@ export class DiscordAdapter extends BaseAdapter {
       return { success: false, error: `Channel ${chatId} not found` };
     }
 
-    // ── ANTI-LOOP SYSTEM: Check and process content ──
-    let content = message.content || '';
-    const shouldSuppress = this.shouldSuppressMentions(content);
-    
-    if (shouldSuppress) {
-      // Strip all @mentions to prevent response loops
-      content = this.stripMentions(content);
-      // Replace @end with empty string
-      content = content.replace(/@end/gi, '').trim();
-      if (!content) {
-        content = '(message sent without mention to prevent loop)';
-      }
-    }
-
     // Format content for Discord
+    const content = message.content || '';
     const chunks = content ? formatForChannel(content, this.capabilities) : [''];
 
     let lastMessageId: string | undefined;

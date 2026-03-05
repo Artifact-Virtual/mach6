@@ -11,6 +11,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 // Use global process (don't import — it shadows signal handlers)
 import {
   palette, gradient, versionBanner, kvLine, ok, warn, info,
@@ -65,8 +69,6 @@ interface DiscordChannelConfig {
   botId?: string;
   /** Adapter ID — must be unique per bot instance (default: 'discord-main') */
   adapterId?: string;
-  /** Other bot IDs to suppress responses to (prevents cross-bot echo) */
-  siblingBotIds?: string[];
   policy?: Partial<ChannelPolicy>;
   /** Override workspace files for system prompt (multi-persona) */
   promptFiles?: { path: string; label: string }[];
@@ -338,19 +340,19 @@ export class Mach6Gateway {
       try {
         console.log(info(`Starting Discord adapter ${palette.cyan}${adapterId}${palette.reset}...`));
         const adapter = new DiscordAdapter(adapterId);
+        // Day 21 — Mention-Only Protocol: one rule for all bots.
+        // Process message only if it @mentions this bot's ID (or is a DM).
         const policy: ChannelPolicy = {
           dmPolicy: 'open',
-          groupPolicy: 'mention-only',
+          groupPolicy: 'mention-only', // kept for type compat, router ignores it
           ownerIds: this.gatewayConfig.ownerIds ?? [],
-          requireMention: true,
           selfId: dcfg.botId, // Required for mention detection
-          siblingBotIds: dcfg.siblingBotIds ?? [],
           ...dcfg.policy,
         };
 
         await this.channelRegistry.register(
           adapter,
-          { token: dcfg.token, botId: dcfg.botId, siblingBotIds: dcfg.siblingBotIds },
+          { token: dcfg.token, botId: dcfg.botId },
           policy,
         );
         console.log(ok(`Discord ${palette.cyan}${adapterId}${palette.reset} ${palette.green}connected${palette.reset}`));
@@ -377,10 +379,10 @@ export class Mach6Gateway {
           : undefined;
         const policy: ChannelPolicy = {
           dmPolicy: 'allowlist',
-          groupPolicy: 'mention-only',
+          groupPolicy: 'mention-only', // kept for type compat, router uses @mention check
           ownerIds: this.gatewayConfig.ownerIds ?? [],
           allowedSenders: this.gatewayConfig.ownerIds ?? [],
-          selfId: waPhoneJid, // Required for @mention detection in groups
+          selfId: waPhoneJid,
           ...channels.whatsapp.policy,
         };
 
@@ -615,33 +617,76 @@ export class Mach6Gateway {
   private async handleEnvelope(envelope: BusEnvelope): Promise<void> {
     const sessionId = envelope.sessionId!;
 
-    // ── Sibling Bot Loop Breaker ─────────────────────────────────────────
-    // Instead of passing sibling bot messages through the full LLM pipeline
-    // (which generates text responses that trigger echo loops), we react with
-    // an emoji. Reactions don't trigger MessageCreate — loop broken.
-    const router = this.channelRegistry.getRouter();
-    if (router.isSiblingSender(envelope.source)) {
-      const adapter = this.channelRegistry.get(envelope.source.adapterId);
-      if (adapter && typeof (adapter as any).react === 'function' && envelope.metadata.platformMessageId) {
-        try {
-          await (adapter as any).react(
-            envelope.source.chatId,
-            envelope.metadata.platformMessageId,
-            '👁️',
-          );
-          console.log(`${palette.dim}  [sibling]${palette.reset} Reacted 👁️ to ${palette.cyan}${envelope.source.senderName ?? envelope.source.senderId}${palette.reset} in ${envelope.source.chatId} ${palette.dim}(loop breaker)${palette.reset}`);
-        } catch (err) {
-          console.log(`${palette.dim}  [sibling]${palette.reset} React failed: ${err}`);
+    // ── Forward Routes ───────────────────────────────────────────────────
+    // If this chatId is mapped to a sibling gateway (e.g. Aria), forward
+    // the message via HTTP API instead of processing locally.
+    const forwardRoutes = (this.config as any).forwardRoutes as Record<string, { url: string; apiKey?: string; name?: string }> | undefined;
+    if (forwardRoutes && envelope.source.chatId in forwardRoutes) {
+      const route = forwardRoutes[envelope.source.chatId];
+      const routeName = route.name ?? route.url;
+      console.log(`${palette.dim}  [forward]${palette.reset} → ${palette.cyan}${routeName}${palette.reset} (${envelope.source.chatId})`);
+
+      // Show typing indicator while Aria processes (sustained — will be paused when response arrives)
+      try {
+        const adapter = this.channelRegistry.get(envelope.source.adapterId);
+        if (adapter && 'typing' in adapter && typeof (adapter as any).typing === 'function') {
+          await (adapter as any).typing(envelope.source.chatId, Infinity);
         }
-      } else {
-        console.log(`${palette.dim}  [sibling]${palette.reset} Acknowledged ${palette.cyan}${envelope.source.senderName ?? envelope.source.senderId}${palette.reset} ${palette.dim}(no react capability)${palette.reset}`);
+      } catch { /* ignore typing errors */ }
+
+      try {
+        const body = JSON.stringify({
+          text: envelope.payload.text ?? '',
+          channel: envelope.source.channelType,
+          chatId: envelope.source.chatId,
+          senderId: envelope.source.senderId,
+          senderName: envelope.source.senderName,
+          messageId: envelope.metadata.platformMessageId,
+        });
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (route.apiKey) headers['Authorization'] = `Bearer ${route.apiKey}`;
+
+        const resp = await fetch(route.url, { method: 'POST', headers, body, signal: AbortSignal.timeout(120_000) });
+        const data = await resp.json() as { text?: string; response?: string; error?: string };
+        const responseText = data.text ?? data.response;
+
+        if (responseText && responseText !== 'HEARTBEAT_OK' && responseText !== 'NO_REPLY') {
+          console.log(`${palette.dim}  [forward]${palette.reset} ← ${palette.green}${responseText.length} chars${palette.reset} from ${palette.cyan}${routeName}${palette.reset}`);
+          await this.channelRegistry.send(
+            envelope.source.adapterId,
+            envelope.source.chatId,
+            { content: responseText, replyToId: envelope.metadata.platformMessageId },
+          );
+        } else if (data.error) {
+          console.log(`${palette.dim}  [forward]${palette.reset} ${palette.red}Error:${palette.reset} ${data.error}`);
+        }
+      } catch (err) {
+        console.error(`  ${palette.red}✗ [forward]${palette.reset} ${routeName}: ${err}`);
+        // Fallback: let the user know
+        try {
+          await this.channelRegistry.send(
+            envelope.source.adapterId,
+            envelope.source.chatId,
+            { content: `⚠️ ${routeName} is unreachable. Forwarding failed.` },
+          );
+        } catch { /* ignore */ }
+      } finally {
+        // Pause typing indicator after forward completes (success or failure)
+        try {
+          const adapter = this.channelRegistry.get(envelope.source.adapterId);
+          if (adapter && 'pauseTyping' in adapter && typeof (adapter as any).pauseTyping === 'function') {
+            await (adapter as any).pauseTyping(envelope.source.chatId);
+          }
+        } catch { /* ignore */ }
       }
-      // Log the sibling message content for awareness, but do NOT process through LLM
-      if (envelope.payload.text) {
-        console.log(`${palette.dim}  [sibling]${palette.reset} ${palette.dim}Content: ${envelope.payload.text.slice(0, 200)}${palette.reset}`);
-      }
-      return; // ← This is the loop breaker. No LLM turn, no text response.
+      return; // Don't process locally
     }
+
+    // ── Day 21: Sibling loop breaker REMOVED ─────────────────────────────
+    // The Mention-Only Protocol handles echo loops structurally:
+    // A bot only processes messages that @mention it by ID.
+    // If Bot A sends a message without @Bot_B, Bot B never sees it.
+    // No cooldowns, no sibling tracking, no react-as-loop-breaker needed.
 
     // Check if there's already an active turn for this session
     if (this.activeTurns.has(sessionId)) {
@@ -983,6 +1028,90 @@ export class Mach6Gateway {
     return parts.join(' ');
   }
 
+  // ── COMB Auto-Flush on Shutdown ──────────────────────────────────────
+
+  /**
+   * Flush the last N messages from all active sessions into COMB before shutdown.
+   * This gives the next session lossless context of what was happening when the
+   * process went down — conversations, directives, mid-task state.
+   * 
+   * Global: every Mach6 instance (AVA, Aria, future) gets this automatically.
+   */
+  private async flushCombOnShutdown(tailMessages = 4): Promise<void> {
+    const ws = this.config.workspace;
+    const python = path.join(ws, '.hektor-env', 'bin', 'python3');
+    const flushScript = path.join(ws, '.ava-memory', 'flush.py');
+
+    // Check if COMB infrastructure exists for this workspace
+    if (!fs.existsSync(python) || !fs.existsSync(flushScript)) {
+      console.log(`${palette.dim}  [comb]${palette.reset} No COMB infrastructure at ${ws} — skipping auto-flush`);
+      return;
+    }
+
+    try {
+      // Collect the last N non-system messages from all recent sessions
+      const sessionSummaries = this.sessionManager.list();
+      const fragments: string[] = [];
+      const now = Date.now();
+      const RECENCY_WINDOW = 24 * 60 * 60 * 1000; // Only flush sessions active in last 24h
+
+      for (const summary of sessionSummaries) {
+        if (now - summary.updatedAt > RECENCY_WINDOW) continue;
+
+        const session = this.sessionManager.load(summary.id);
+        if (!session || session.messages.length === 0) continue;
+
+        // Extract last N conversation messages (skip system prompts)
+        const convMessages = session.messages.filter(m => m.role !== 'system');
+        const tail = convMessages.slice(-tailMessages);
+
+        if (tail.length === 0) continue;
+
+        const sessionLabel = summary.label ?? summary.id;
+        const lines: string[] = [`[Session: ${sessionLabel}]`];
+
+        for (const msg of tail) {
+          const role = msg.role === 'assistant' ? 'AVA' : msg.role === 'user' ? 'Human' : msg.role;
+          let content = typeof msg.content === 'string' 
+            ? msg.content 
+            : JSON.stringify(msg.content);
+          // Truncate very long messages (tool results, etc.)
+          if (content.length > 500) content = content.slice(0, 500) + '... [truncated]';
+          // Skip tool results — they're noise for context recovery
+          if (msg.role === 'tool') continue;
+          lines.push(`${role}: ${content}`);
+        }
+
+        fragments.push(lines.join('\n'));
+      }
+
+      if (fragments.length === 0) {
+        console.log(`${palette.dim}  [comb]${palette.reset} No recent sessions to flush`);
+        return;
+      }
+
+      const timestamp = new Date().toISOString();
+      const combContent = [
+        `[Auto-flush at shutdown — ${timestamp}]`,
+        `Last ${tailMessages} messages from active sessions:`,
+        '',
+        ...fragments,
+      ].join('\n');
+
+      // Stage to COMB via flush.py
+      await execFileAsync(python, [flushScript, 'stage', combContent], {
+        encoding: 'utf-8',
+        timeout: 10000,
+        cwd: ws,
+      });
+
+      console.log(`${palette.dim}  [comb]${palette.reset} ${palette.green}Auto-flushed${palette.reset} ${fragments.length} session(s) → COMB`);
+    } catch (err) {
+      // Never let COMB flush failure block shutdown
+      console.error(`${palette.dim}  [comb]${palette.reset} ${palette.red}Auto-flush failed${palette.reset}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
   // ── Signals ────────────────────────────────────────────────────────────
 
   private setupSignals(): void {
@@ -995,6 +1124,10 @@ export class Mach6Gateway {
       for (const [, turn] of this.activeTurns) {
         turn.abortController.abort('shutdown');
       }
+
+      // ── COMB auto-flush: persist conversation tail before exit ──
+      // Runs BEFORE channels disconnect — needs filesystem access
+      await this.flushCombOnShutdown(4);
 
       // Disconnect all channels
       await this.channelRegistry.destroy();
@@ -1069,7 +1202,6 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
         token: process.env.DISCORD_BOT_TOKEN ?? (config as any).discord?.token ?? '',
         botId: (config as any).discord?.botId,
         adapterId: (config as any).discord?.adapterId ?? 'discord-main',
-        siblingBotIds: (config as any).discord?.siblingBotIds,
         policy: (config as any).discord?.policy,
       },
       whatsapp: {
@@ -1086,7 +1218,6 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
       token: extra.token ?? '',
       botId: extra.botId,
       adapterId: extra.adapterId ?? `discord-${extra.botId ?? 'extra'}`,
-      siblingBotIds: extra.siblingBotIds,
       policy: extra.policy,
       promptFiles: extra.promptFiles,
     })),
