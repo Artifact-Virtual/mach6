@@ -90,7 +90,7 @@ graph LR
 | **Router** | Policy enforcement, JID normalization, deduplication, interrupt detection, priority. |
 | **Message Bus** | Priority queue with interrupt bypass, message coalescing, backpressure management. |
 | **Agent Runner** | Agentic loop — tool calling, context management, abort signals, iteration limits. |
-| **Providers** | GitHub Copilot, Anthropic, OpenAI, Gladius (local). Hot-swappable mid-session. |
+| **Providers** | Groq, Anthropic, OpenAI, xAI (Grok), GitHub Copilot, Ollama, Gladius. Hot-swappable mid-session. |
 | **Tools** | 18 built-in. File I/O, shell, browser, TTS, memory, process management, messaging. |
 | **Sessions** | Persistent, labeled, TTL-aware. Sub-agent spawning up to depth 3. |
 
@@ -138,10 +138,10 @@ One Node.js daemon runs everything — channels, routing, sessions, tools, provi
 
 ```jsonc
 {
-  "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4-6",
+  "defaultProvider": "groq",
+  "defaultModel": "llama-3.3-70b-versatile",
   "maxTokens": 8192,
-  "maxIterations": 50,
+  "maxIterations": 25,
   "temperature": 0.3,
 
   // Use forward slashes on all platforms
@@ -150,9 +150,12 @@ One Node.js daemon runs everything — channels, routing, sessions, tools, provi
   "sessionsDir": ".sessions",
 
   "providers": {
-    "github-copilot": {},
+    "groq": { "baseUrl": "https://api.groq.com/openai" },
     "anthropic": {},
     "openai": {},
+    "xai": {},
+    "ollama": { "baseUrl": "http://127.0.0.1:11434" },
+    "github-copilot": {},
     "gladius": { "baseUrl": "http://127.0.0.1:8741" }
   },
 
@@ -198,11 +201,15 @@ All string values support `${ENV_VAR}` interpolation.
 
 ```bash
 # LLM Providers
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
+GROQ_API_KEY=gsk_...           # https://console.groq.com/keys (free tier)
+ANTHROPIC_API_KEY=sk-ant-...   # https://console.anthropic.com/
+OPENAI_API_KEY=sk-...          # https://platform.openai.com/api-keys
+XAI_API_KEY=xai-...            # https://console.x.ai/
 
 # GitHub Copilot — usually automatic via `gh auth login`
 # COPILOT_GITHUB_TOKEN=
+
+# Ollama — no key needed, just run `ollama serve`
 
 # Discord
 DISCORD_BOT_TOKEN=
@@ -221,12 +228,34 @@ MACH6_PORT=3006
 
 ## 🧠 Providers
 
-| Provider | Config Key | How it authenticates |
-|----------|-----------|---------------------|
-| **GitHub Copilot** | `github-copilot` | Auto-resolved (see below) — no API key needed |
-| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY` env var |
-| **OpenAI** | `openai` | `OPENAI_API_KEY` env var |
-| **Gladius** | `gladius` | Local HTTP endpoint |
+| Provider | Config Key | How it authenticates | Speed |
+|----------|-----------|---------------------|-------|
+| **Groq** | `groq` | `GROQ_API_KEY` env var | ⚡ Fastest (LPU hardware) |
+| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY` env var | Fast |
+| **OpenAI** | `openai` | `OPENAI_API_KEY` env var | Fast |
+| **xAI (Grok)** | `xai` | `XAI_API_KEY` env var | Fast |
+| **GitHub Copilot** | `github-copilot` | Auto-resolved (see below) — no API key needed | Moderate |
+| **Ollama** | `ollama` | Local HTTP endpoint — no key needed | Varies (local) |
+| **Gladius** | `gladius` | Local HTTP endpoint | Local |
+
+> **Recommended for getting started:** Groq — free tier, 280-1000 tok/sec, no credit card needed. [Get a key →](https://console.groq.com/keys)
+
+### Groq models
+
+| Model | Config value | Notes |
+|-------|-------------|-------|
+| Llama 3.3 70B | `llama-3.3-70b-versatile` | Best all-around (default) |
+| Qwen3 32B | `qwen/qwen3-32b` | Strong reasoning |
+| Llama 3.1 8B | `llama-3.1-8b-instant` | Ultra-fast, lighter tasks |
+
+### xAI (Grok) models
+
+| Model | Config value | Notes |
+|-------|-------------|-------|
+| Grok 3 | `grok-3` | Strongest reasoning |
+| Grok 3 Fast | `grok-3-fast` | Lower latency |
+| Grok 3 Mini | `grok-3-mini` | Lightweight + think mode |
+| Grok 3 Mini Fast | `grok-3-mini-fast` | Fastest Grok |
 
 ### GitHub Copilot token resolution
 
@@ -239,7 +268,7 @@ No API key required if `gh` CLI is installed and authenticated. Token resolves i
 5. `%APPDATA%\github-copilot\hosts.json` (Windows)
 6. `gh auth token` CLI fallback (all platforms)
 
-### Available models (via Copilot proxy)
+### Copilot proxy models
 
 | Model | Config value |
 |-------|-------------|
@@ -247,6 +276,15 @@ No API key required if `gh` CLI is installed and authenticated. Token resolves i
 | Claude Sonnet 4 | `claude-sonnet-4` |
 | GPT-4o | `gpt-4o` |
 | o3-mini | `o3-mini` |
+
+### Ollama (local models)
+
+Runs locally — no API key, no cloud. Install from [ollama.ai](https://ollama.ai), pull a model, go:
+
+```bash
+ollama pull qwen3:4b
+# Then set defaultProvider: "ollama", defaultModel: "qwen3:4b"
+```
 
 Providers are hot-swappable mid-session via `/provider` and `/model` commands.
 
@@ -383,7 +421,7 @@ mach6/
 │   ├── gateway/        # Persistent daemon — signals, hot-reload, turns
 │   ├── heartbeat/      # Activity-aware periodic health checks
 │   ├── memory/         # Index integrity checks
-│   ├── providers/      # LLM providers — Copilot, Anthropic, OpenAI, Gladius
+│   ├── providers/      # LLM providers — Groq, Anthropic, OpenAI, xAI, Copilot, Ollama, Gladius
 │   ├── security/       # Input sanitization
 │   ├── sessions/       # Session store, queue, sub-agents
 │   ├── tools/          # 18 built-in tools, policy engine, registry, MCP bridge
@@ -426,7 +464,7 @@ mach6/
 | Lines of TypeScript | ~13,800 |
 | Source files | 66 |
 | Built-in tools | 14+ |
-| LLM providers | 4 |
+| LLM providers | 7 |
 | Channel adapters | 2 + HTTP API |
 | Documentation files | 28 |
 | Cold boot to connected | ~2.3s |

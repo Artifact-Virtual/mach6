@@ -6,6 +6,7 @@
  * 
  * Mach6 AI Gateway — sovereign engine.
  */
+import 'dotenv/config';
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -57,6 +58,7 @@ import { githubCopilotProvider } from '../providers/github-copilot.js';
 import { gladiusProvider } from '../providers/gladius.js';
 import { groqProvider } from '../providers/groq.js';
 import { ollamaProvider } from '../providers/ollama.js';
+import { xaiProvider } from '../providers/xai.js';
 import type { BusEnvelope, ChannelPolicy, OutboundMessage } from '../channels/types.js';
 import { formatForChannel } from '../channels/formatter.js';
 import { createSandboxedRegistry, type SessionContext } from '../tools/sandbox.js';
@@ -116,6 +118,7 @@ const PROVIDERS = new Map<string, Provider>([
   ['gladius', gladiusProvider],
   ['groq', groqProvider],
   ['ollama', ollamaProvider],
+  ['xai', xaiProvider],
 ]);
 
 // ─── Gateway ───────────────────────────────────────────────────────────────

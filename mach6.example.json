@@ -1,24 +1,29 @@
 {
-  "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4-6",
+  "defaultProvider": "groq",
+  "defaultModel": "llama-3.3-70b-versatile",
   "maxTokens": 8192,
-  "maxIterations": 50,
+  "maxIterations": 25,
   "temperature": 0.3,
-  "workspace": "/path/to/your/workspace",
+  "workspace": ".",
   "sessionsDir": ".sessions",
   "providers": {
-    "github-copilot": {},
+    "groq": {
+      "baseUrl": "https://api.groq.com/openai"
+    },
     "anthropic": {},
+    "openai": {},
+    "ollama": {
+      "baseUrl": "http://127.0.0.1:11434"
+    },
+    "xai": {},
+    "github-copilot": {},
     "gladius": {
       "baseUrl": "http://127.0.0.1:8741"
     }
   },
-  "ownerIds": [
-    "your-discord-user-id",
-    "your-phone@s.whatsapp.net"
-  ],
+  "ownerIds": [],
   "discord": {
-    "enabled": true,
+    "enabled": false,
     "token": "${DISCORD_BOT_TOKEN}",
     "botId": "${DISCORD_CLIENT_ID}",
     "siblingBotIds": [],
@@ -26,23 +31,18 @@
       "dmPolicy": "allowlist",
       "groupPolicy": "mention-only",
       "requireMention": true,
-      "allowedSenders": [
-        "your-discord-user-id"
-      ],
+      "allowedSenders": [],
       "allowedGroups": []
     }
   },
   "whatsapp": {
-    "enabled": true,
+    "enabled": false,
     "authDir": "~/.mach6/whatsapp-auth",
-    "phoneNumber": "your-phone-number",
     "autoRead": true,
     "policy": {
       "dmPolicy": "allowlist",
       "groupPolicy": "mention-only",
-      "allowedSenders": [
-        "your-phone@s.whatsapp.net"
-      ],
+      "allowedSenders": [],
       "allowedGroups": []
     }
   },

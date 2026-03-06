@@ -586,7 +586,8 @@ class Wizard {
         'anthropic': {},
         'openai': {},
         'ollama': { baseUrl: 'http://127.0.0.1:11434' },
-        'groq': {},
+        'groq': { baseUrl: 'https://api.groq.com/openai' },
+        'xai': {},
         'gladius': { baseUrl: 'http://127.0.0.1:8741' },
       },
       ownerIds: config.ownerIds,
@@ -656,6 +657,12 @@ class Wizard {
       lines.push(`GROQ_API_KEY=${config.apiKey}`);
     } else {
       lines.push('# GROQ_API_KEY=');
+    }
+
+    if (config.provider === 'xai' && config.apiKey) {
+      lines.push(`XAI_API_KEY=${config.apiKey}`);
+    } else {
+      lines.push('# XAI_API_KEY=');
     }
 
     lines.push('');
