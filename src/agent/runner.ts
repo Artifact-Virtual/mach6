@@ -232,7 +232,7 @@ export async function runAgent(
 
         // On tool_use_start, record the pending call
         if (event.type === 'tool_use_start') {
-          pendingToolCalls.push({ id: event.id, name: event.name, input: {} });
+          pendingToolCalls.push({ id: event.id, name: event.name, input: {}, extra: event.extra });
         }
       }
     } catch (err) {
