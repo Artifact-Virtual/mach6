@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mach6 — AVA</title>
+<title>Mach6</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -18,12 +18,12 @@
   --accent-hover: #a78bfa;
   --accent-dim: #8b5cf620;
   --accent-glow: #8b5cf640;
-  --ava-purple: #a855f7;
-  --ava-purple-soft: #c084fc;
-  --ava-purple-dim: #a855f715;
-  --ali-gold: #d4a017;
-  --ali-gold-soft: #f0c040;
-  --ali-gold-dim: #d4a01715;
+  --accent-primary: #a855f7;
+  --accent-soft: #c084fc;
+  --accent-dim-alt: #a855f715;
+  --accent-secondary: #d4a017;
+  --accent-secondary-soft: #f0c040;
+  --accent-secondary-dim: #d4a01715;
   --border: #1e1e28;
   --border-light: #2a2a38;
   --green: #22c55e;
@@ -72,7 +72,7 @@ body {
 .sidebar-header .logo { font-size: 20px; }
 .sidebar-header .title { font-size: 14px; font-weight: 600; flex: 1; }
 .new-chat-btn {
-  background: var(--ava-purple);
+  background: var(--accent-primary);
   color: white;
   border: none;
   border-radius: 8px;
@@ -82,7 +82,7 @@ body {
   cursor: pointer;
   transition: background var(--transition);
 }
-.new-chat-btn:hover { background: var(--ava-purple-soft); }
+.new-chat-btn:hover { background: var(--accent-soft); }
 
 .session-list {
   flex: 1;
@@ -103,7 +103,7 @@ body {
   margin-bottom: 2px;
 }
 .session-item:hover { background: var(--bg-tertiary); }
-.session-item.active { background: var(--ava-purple-dim); border: 1px solid var(--ava-purple)40; }
+.session-item.active { background: var(--accent-dim-alt); border: 1px solid var(--accent-primary)40; }
 .session-item .session-info { flex: 1; min-width: 0; }
 .session-item .session-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .session-item .session-time { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
@@ -180,7 +180,7 @@ body {
 }
 .chat-title .logo-icon {
   width: 28px; height: 28px;
-  background: linear-gradient(135deg, var(--ava-purple), #7c3aed);
+  background: linear-gradient(135deg, var(--accent-primary), #7c3aed);
   border-radius: 8px;
   display: flex; align-items: center; justify-content: center;
   font-size: 13px; font-weight: 800; color: white;
@@ -203,12 +203,12 @@ body {
 .message { padding: 10px 24px; max-width: 100%; }
 .message + .message { margin-top: 2px; }
 .message-wrapper { max-width: 780px; margin: 0 auto; }
-.message.user-msg .message-wrapper { border-left: 2px solid var(--ali-gold-dim); padding-left: 12px; }
-.message.assistant-msg .message-wrapper { border-left: 2px solid var(--ava-purple-dim); padding-left: 12px; }
+.message.user-msg .message-wrapper { border-left: 2px solid var(--accent-secondary-dim); padding-left: 12px; }
+.message.assistant-msg .message-wrapper { border-left: 2px solid var(--accent-dim-alt); padding-left: 12px; }
 .message-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .message-role { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
-.message-role.user { color: var(--ali-gold); }
-.message-role.assistant { color: var(--ava-purple); }
+.message-role.user { color: var(--accent-secondary); }
+.message-role.assistant { color: var(--accent-primary); }
 .message-meta { font-size: 11px; color: var(--text-tertiary); margin-left: auto; display: flex; gap: 12px; }
 .message-content { font-size: 14px; line-height: 1.75; color: var(--text-primary); }
 .message-content p { margin-bottom: 10px; }
@@ -219,13 +219,13 @@ body {
 .message-content pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; margin: 12px 0; overflow-x: auto; position: relative; }
 .message-content pre code { background: none; padding: 0; color: var(--text-primary); font-size: 13px; line-height: 1.5; border: none; }
 .code-lang { position: absolute; top: 8px; right: 12px; font-size: 10px; color: var(--text-tertiary); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; }
-.message-content blockquote { border-left: 3px solid var(--ava-purple); padding: 6px 16px; margin: 10px 0; color: var(--text-secondary); background: var(--ava-purple-dim); border-radius: 0 var(--radius) var(--radius) 0; }
+.message-content blockquote { border-left: 3px solid var(--accent-primary); padding: 6px 16px; margin: 10px 0; color: var(--text-secondary); background: var(--accent-dim-alt); border-radius: 0 var(--radius) var(--radius) 0; }
 .message-content ul, .message-content ol { padding-left: 22px; margin: 8px 0; }
 .message-content li { margin: 4px 0; }
 .message-content h1, .message-content h2, .message-content h3 { margin: 18px 0 8px; font-weight: 600; letter-spacing: -0.02em; }
 .message-content h3 { font-size: 15px; }
 .message-content hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
-.message-content a { color: var(--ava-purple-soft); text-decoration: none; }
+.message-content a { color: var(--accent-soft); text-decoration: none; }
 .message-content a:hover { text-decoration: underline; }
 
 /* ── Input ────────────────────────────────────────────────── */
@@ -238,14 +238,14 @@ body {
   transition: border-color var(--transition), box-shadow var(--transition); min-height: 48px; max-height: 200px;
 }
 .chat-input::placeholder { color: var(--text-tertiary); }
-.chat-input:focus { border-color: var(--ava-purple); box-shadow: 0 0 0 3px var(--ava-purple-dim); }
+.chat-input:focus { border-color: var(--accent-primary); box-shadow: 0 0 0 3px var(--accent-dim-alt); }
 .send-btn {
   position: absolute; right: 8px; bottom: 8px; width: 34px; height: 34px; border: none;
-  background: var(--ali-gold); color: var(--bg-primary); border-radius: 10px; cursor: pointer;
+  background: var(--accent-secondary); color: var(--bg-primary); border-radius: 10px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; font-size: 16px;
   transition: background var(--transition), transform var(--transition);
 }
-.send-btn:hover { background: var(--ali-gold-soft); transform: scale(1.05); }
+.send-btn:hover { background: var(--accent-secondary-soft); transform: scale(1.05); }
 .send-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
 
 /* ── Status Bar ───────────────────────────────────────────── */
@@ -262,7 +262,7 @@ body {
 
 /* ── Spinner / Animations ─────────────────────────────────── */
 @keyframes spin { to { transform: rotate(360deg); } }
-.spinner { width: 16px; height: 16px; border: 2px solid var(--bg-tertiary); border-top-color: var(--ava-purple); border-radius: 50%; animation: spin 0.6s linear infinite; display: inline-block; }
+.spinner { width: 16px; height: 16px; border: 2px solid var(--bg-tertiary); border-top-color: var(--accent-primary); border-radius: 50%; animation: spin 0.6s linear infinite; display: inline-block; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .message { animation: fadeIn 250ms ease; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -301,8 +301,8 @@ body {
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <span class="logo">🔮</span>
-      <span class="title">AVA</span>
+      <span class="logo" id="sidebarLogo">🤖</span>
+      <span class="title" id="sidebarTitle">Agent</span>
       <button class="new-chat-btn" onclick="newChat()">+ New</button>
     </div>
     <div class="session-list" id="sessionList"></div>
@@ -336,8 +336,8 @@ body {
       <div style="display:flex;align-items:center;">
         <button class="hamburger" onclick="toggleSidebar()" title="Toggle sidebar">☰</button>
         <div class="chat-title">
-          <div class="logo-icon">🔮</div>
-          <span>AVA — Mach6</span>
+          <div class="logo-icon" id="headerLogo">🤖</div>
+          <span id="headerTitle">Mach6</span>
         </div>
       </div>
       <div class="chat-header-right">
@@ -347,15 +347,15 @@ body {
 
     <div class="messages" id="messages">
       <div class="empty-state" id="emptyState">
-        <div class="empty-state-icon">🔮</div>
-        <div class="empty-state-text">AVA — Sovereign Mode</div>
+        <div class="empty-state-icon" id="emptyIcon">🤖</div>
+        <div class="empty-state-text" id="emptyText">Mach6</div>
         <div class="empty-state-hint">Type a message to begin</div>
       </div>
     </div>
 
     <div class="input-area">
       <div class="input-wrapper">
-        <textarea class="chat-input" id="chatInput" placeholder="Message AVA..." rows="1"
+        <textarea class="chat-input" id="chatInput" placeholder="Type a message..." rows="1"
           onkeydown="handleInputKey(event)" oninput="autoResize(this)" disabled></textarea>
         <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send" disabled>↑</button>
       </div>
@@ -380,9 +380,13 @@ let retryDelay = 3000;
 let retryTimer = null;
 let retryCountdown = null;
 
+// Agent identity (populated from /api/status)
+let agentName = 'Agent';
+let agentEmoji = '🤖';
+
 // ── Session Management (localStorage) ──────────────────────────
-const STORAGE_KEY = 'ava-mach6-sessions';
-const ACTIVE_KEY = 'ava-mach6-active';
+const STORAGE_KEY = 'mach6-sessions';
+const ACTIVE_KEY = 'mach6-active';
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
@@ -427,7 +431,7 @@ function newChat() {
   renderSessionList();
   // Show empty state
   const el = document.getElementById('messages');
-  el.innerHTML = '<div class="empty-state" id="emptyState"><div class="empty-state-icon">🔮</div><div class="empty-state-text">AVA — Sovereign Mode</div><div class="empty-state-hint">Type a message to begin</div></div>';
+  el.innerHTML = '<div class="empty-state" id="emptyState"><div class="empty-state-icon">' + agentEmoji + '</div><div class="empty-state-text">' + agentName + ' — Mach6</div><div class="empty-state-hint">Type a message to begin</div></div>';
   closeSidebarMobile();
 }
 
@@ -511,14 +515,14 @@ function renderMessages() {
   const emptyState = document.getElementById('emptyState');
   if (emptyState && currentMessages.length > 0) emptyState.remove();
   if (currentMessages.length === 0) {
-    el.innerHTML = '<div class="empty-state" id="emptyState"><div class="empty-state-icon">🔮</div><div class="empty-state-text">AVA — Sovereign Mode</div><div class="empty-state-hint">Type a message to begin</div></div>';
+    el.innerHTML = '<div class="empty-state" id="emptyState"><div class="empty-state-icon">' + agentEmoji + '</div><div class="empty-state-text">' + agentName + ' — Mach6</div><div class="empty-state-hint">Type a message to begin</div></div>';
     return;
   }
   el.innerHTML = currentMessages.map(function(msg, i) {
     var metaHtml = msg.meta ? '<span class="message-meta">' + esc(msg.meta) + '</span>' : '';
     var msgClass = msg.role === 'user' ? 'user-msg' : 'assistant-msg';
-    var roleLabel = msg.role === 'user' ? '🫆' : '🔮';
-    return '<div class="message ' + msgClass + '" data-idx="' + i + '"><div class="message-wrapper"><div class="message-header"><span class="message-role ' + msg.role + '">' + roleLabel + ' ' + (msg.role === 'user' ? 'Ali' : 'AVA') + '</span>' + metaHtml + '</div><div class="message-content">' + renderMarkdown(msg.content) + '</div></div></div>';
+    var roleLabel = msg.role === 'user' ? '👤' : agentEmoji;
+    return '<div class="message ' + msgClass + '" data-idx="' + i + '"><div class="message-wrapper"><div class="message-header"><span class="message-role ' + msg.role + '">' + roleLabel + ' ' + (msg.role === 'user' ? 'You' : agentName) + '</span>' + metaHtml + '</div><div class="message-content">' + renderMarkdown(msg.content) + '</div></div></div>';
   }).join('');
   el.scrollTop = el.scrollHeight;
 }
@@ -536,6 +540,21 @@ function setStatus(state, text) {
 }
 
 function updateFooter(health) {
+  // Update agent identity from server
+  if (health.agentName) {
+    agentName = health.agentName;
+    agentEmoji = health.agentEmoji || '🤖';
+    document.title = 'Mach6 — ' + agentName;
+    document.getElementById('sidebarLogo').textContent = agentEmoji;
+    document.getElementById('sidebarTitle').textContent = agentName;
+    document.getElementById('headerLogo').textContent = agentEmoji;
+    document.getElementById('headerTitle').textContent = agentName + ' — Mach6';
+    var emptyIcon = document.getElementById('emptyIcon');
+    var emptyText = document.getElementById('emptyText');
+    if (emptyIcon) emptyIcon.textContent = agentEmoji;
+    if (emptyText) emptyText.textContent = agentName + ' — Mach6';
+    document.getElementById('chatInput').placeholder = 'Message ' + agentName + '...';
+  }
   document.getElementById('footerModel').textContent = health.model || '—';
   document.getElementById('footerProvider').textContent = (health.provider || '—').replace('github-copilot/', '');
   var up = health.uptime;
@@ -651,7 +670,7 @@ async function sendMessage() {
   var thinkingEl = document.createElement('div');
   thinkingEl.className = 'message';
   thinkingEl.id = 'thinking';
-  thinkingEl.innerHTML = '<div class="message-wrapper"><div class="message-header"><span class="message-role assistant">AVA</span></div><div class="streaming-indicator"><span class="spinner"></span> Thinking...</div></div>';
+  thinkingEl.innerHTML = '<div class="message-wrapper"><div class="message-header"><span class="message-role assistant">' + agentName + '</span></div><div class="streaming-indicator"><span class="spinner"></span> Thinking...</div></div>';
   messagesEl.appendChild(thinkingEl);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 

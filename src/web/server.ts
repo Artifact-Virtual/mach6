@@ -73,11 +73,17 @@ let config: Config = {
   apiKeys: {},
 };
 
+// Agent identity (from mach6.json)
+let agentName = 'Agent';
+let agentEmoji = '🤖';
+
 // Load config from mach6.json if exists
 const configPath = path.resolve(process.cwd(), 'mach6.json');
 try {
   const raw = fs.readFileSync(configPath, 'utf-8');
   const loaded = JSON.parse(raw);
+  if (loaded.name) agentName = loaded.name;
+  if (loaded.emoji) agentEmoji = loaded.emoji;
   config = { ...config, ...loaded };
 } catch { /* no config file yet */ }
 
@@ -319,6 +325,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       model: config.model,
       provider: config.provider,
       version: '0.1.0',
+      agentName,
+      agentEmoji,
     });
   }
 
