@@ -14,8 +14,13 @@
  */
 
 import * as http from 'node:http';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { palette, ok, warn } from '../cli/brand.js';
+
+const __http_dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -124,20 +129,39 @@ export class HttpApiServer {
       return;
     }
 
-    // Health (no auth required)
-    if (method === 'GET' && pathname === '/api/v1/health') {
+    // Health (no auth required) — supports /api/v1/health, /api/status (web UI compat)
+    if (method === 'GET' && (pathname === '/api/v1/health' || pathname === '/api/status')) {
       const health = this.config.onHealth?.() ?? { status: 'ok' };
       return this.json(res, health);
     }
 
-    // Auth check for all other endpoints
-    if (!this.authenticate(req)) {
+    // Serve web UI at root (no auth — local only)
+    if (method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
+      const webPaths = [
+        path.join(__http_dirname, '..', '..', 'web', 'index.html'),
+        path.join(__http_dirname, '..', 'web', 'index.html'),
+        path.join(process.cwd(), 'web', 'index.html'),
+      ];
+      for (const webPath of webPaths) {
+        try {
+          const html = fs.readFileSync(webPath, 'utf-8');
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(html);
+          return;
+        } catch { /* try next */ }
+      }
+    }
+
+    // Auth check — skip for web UI chat path (local-only, served from same origin)
+    const isWebUIPath = pathname === '/api/chat';
+    if (!isWebUIPath && !this.authenticate(req)) {
       return this.json(res, { error: 'Unauthorized' }, 401);
     }
 
-    // POST /api/v1/chat
-    if (method === 'POST' && pathname === '/api/v1/chat') {
-      return this.handleChat(req, res);
+    // POST /api/v1/chat (JSON response) + /api/chat (SSE response for web UI)
+    if (method === 'POST' && (pathname === '/api/v1/chat' || pathname === '/api/chat')) {
+      const isWebUI = pathname === '/api/chat';
+      return this.handleChat(req, res, isWebUI);
     }
 
     // POST /api/v1/relay
@@ -151,12 +175,16 @@ export class HttpApiServer {
 
   // ── Chat Endpoint ────────────────────────────────────────────────────
 
-  private async handleChat(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  private async handleChat(req: http.IncomingMessage, res: http.ServerResponse, sse = false): Promise<void> {
     const body = await this.readBody(req);
     let parsed: ChatRequest;
 
     try {
       parsed = JSON.parse(body);
+      // Accept both "text" and "message" fields (web UI sends "message")
+      if (!parsed.text && (parsed as any).message) {
+        parsed.text = (parsed as any).message;
+      }
     } catch {
       return this.json(res, { error: 'Invalid JSON' }, 400);
     }
@@ -177,11 +205,24 @@ export class HttpApiServer {
       const response = await this.config.onChat(parsed);
       response.durationMs = Date.now() - startMs;
 
-      this.json(res, {
-        text: response.text,
-        sessionId: response.sessionId,
-        durationMs: response.durationMs,
-      });
+      if (sse) {
+        // SSE format for web UI
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        });
+        res.write(`data: ${JSON.stringify({ type: 'text', content: response.text })}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: 'done', message: { latencyMs: response.durationMs } })}\n\n`);
+        res.end();
+      } else {
+        // JSON format for API clients
+        this.json(res, {
+          text: response.text,
+          sessionId: response.sessionId,
+          durationMs: response.durationMs,
+        });
+      }
     } catch (err) {
       console.error(`${palette.dim}  [http-api]${palette.reset} ${palette.red}Chat error:${palette.reset}`, err);
       this.json(res, {

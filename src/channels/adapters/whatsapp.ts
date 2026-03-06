@@ -148,54 +148,6 @@ export class WhatsAppAdapter extends BaseAdapter {
           console.log(`  QR Data: ${qr}\n`);
         }
         
-        // Save QR as scannable HTML file (self-contained — no CDN dependency)
-        const qrHtmlPath = path.join(process.cwd(), 'whatsapp-qr.html');
-        const qrEscaped = qr.replace(/'/g, "\\'").replace(/\\/g, '\\\\');
-        
-        // Load qrcodejs inline (try assets/ relative to module, then node_modules)
-        let qrJsInline = '';
-        const qrJsPaths = [
-          path.join(__wa_dirname, '..', '..', 'assets', 'qrcode.min.js'),
-          path.join(__wa_dirname, '..', '..', '..', 'assets', 'qrcode.min.js'),
-          path.join(process.cwd(), 'assets', 'qrcode.min.js'),
-        ];
-        for (const p of qrJsPaths) {
-          try { qrJsInline = fs.readFileSync(p, 'utf-8'); break; } catch { /* next */ }
-        }
-        
-        const qrHtml = qrJsInline
-          ? `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Mach6 — WhatsApp QR</title>
-<style>body{background:#0a0a0f;color:#fff;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0}
-h1{background:linear-gradient(135deg,#8a2be2,#00e5ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:2em}
-p{color:#9e9eaa;margin:8px 0}#qr{margin:24px;padding:16px;background:#fff;border-radius:12px;display:inline-block}
-.refresh{color:#ffc125;font-size:0.9em;margin-top:16px}</style>
-<script>${qrJsInline}<\/script></head>
-<body><h1>⚡ Mach6</h1><p>Scan this QR code with WhatsApp to link your agent</p>
-<div id="qr"></div>
-<p class="refresh">QR refreshes every ~30s. Reload this page if expired.</p>
-<script>new QRCode(document.getElementById("qr"),{text:"${qrEscaped}",width:300,height:300,colorDark:"#000000",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.L});<\/script>
-</body></html>`
-          : `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Mach6 — WhatsApp QR</title>
-<style>body{background:#0a0a0f;color:#fff;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:40px}
-h1{color:#ffc125;font-size:2em}pre{background:#1a1a2e;padding:20px;border-radius:8px;word-break:break-all;max-width:600px;color:#00e5ff}</style></head>
-<body><h1>⚡ Mach6 — WhatsApp QR</h1>
-<p style="color:#9e9eaa">Copy this text into any QR code generator (e.g. qr-code-generator.com):</p>
-<pre>${qrEscaped}</pre>
-</body></html>`;
-        try {
-          fs.writeFileSync(qrHtmlPath, qrHtml);
-          console.log(`  \x1b[38;2;0;230;118m✓\x1b[0m QR saved to: \x1b[38;2;0;229;255m${qrHtmlPath}\x1b[0m`);
-          console.log(`  \x1b[38;2;158;158;168mOpen this file in your browser to scan the QR code.\x1b[0m\n`);
-          
-          // Try to auto-open in default browser (fire and forget)
-          const openCmd = process.platform === 'win32' ? 'start ""' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-          exec(`${openCmd} "${qrHtmlPath}"`, () => {});
-        } catch (err) {
-          console.log(`  \x1b[38;2;158;158;168mCouldn't save QR file. Copy the QR data above into any QR generator.\x1b[0m\n`);
-        }
-        
         if (this.onQR) {
           this.onQR(qr);
         }
@@ -205,6 +157,21 @@ h1{color:#ffc125;font-size:2em}pre{background:#1a1a2e;padding:20px;border-radius
         this.selfJid = this.socket?.user?.id ?? '';
         console.log(`[${this.id}] Connected as ${this.selfJid}`);
         this.health.transition('connected');
+
+        // Auto-open web UI in browser after successful connection (Windows/Mac only — not headless servers)
+        if (process.platform === 'win32' || process.platform === 'darwin') {
+          try {
+            const configPath = path.join(process.cwd(), 'mach6.json');
+            const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            const port = cfg.apiPort ?? 3006;
+            const webUrl = `http://localhost:${port}`;
+            const openCmd = process.platform === 'win32' ? 'start ""' : 'open';
+            console.log(`\n  \x1b[38;2;0;230;118m✓\x1b[0m Opening web UI → \x1b[38;2;0;229;255m${webUrl}\x1b[0m\n`);
+            exec(`${openCmd} "${webUrl}"`, () => {});
+          } catch {
+            // Non-fatal — web UI just won't auto-open
+          }
+        }
       }
 
       if (connection === 'close') {
