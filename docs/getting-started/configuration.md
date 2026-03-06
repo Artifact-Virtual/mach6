@@ -18,11 +18,12 @@ Mach6 uses two files for configuration: `mach6.json` for agent settings and `.en
   "workspace": "/home/you/workspace",
   "sessionsDir": ".sessions",
 
-  // Provider configuration — all 7 providers
+  // Provider configuration — all 8 providers
   "providers": {
     "groq": { "baseUrl": "https://api.groq.com/openai" },
     "anthropic": {},
     "openai": {},
+    "gemini": {},
     "xai": {},
     "ollama": { "baseUrl": "http://127.0.0.1:11434" },
     "github-copilot": {},
@@ -66,6 +67,7 @@ Variables are resolved from `process.env` at load time. The `.env` file is auto-
 GROQ_API_KEY=gsk_...           # https://console.groq.com/keys (free tier)
 ANTHROPIC_API_KEY=sk-ant-...   # https://console.anthropic.com/
 OPENAI_API_KEY=sk-...          # https://platform.openai.com/api-keys
+GEMINI_API_KEY=AIza...         # https://aistudio.google.com/apikey
 XAI_API_KEY=xai-...            # https://console.x.ai/
 
 # GitHub Copilot — usually automatic via `gh auth login`
@@ -108,7 +110,7 @@ Each provider can be configured with:
 | `apiKey` | Override env var (not recommended — use `.env`) |
 | `baseUrl` | Custom endpoint URL |
 
-See [Providers Overview](../providers/overview.md) for all 7 providers and their specific options.
+See [Providers Overview](../providers/overview.md) for all 8 providers and their specific options.
 
 ## Channel Policies
 

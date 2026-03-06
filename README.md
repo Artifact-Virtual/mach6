@@ -90,7 +90,7 @@ graph LR
 | **Router** | Policy enforcement, JID normalization, deduplication, interrupt detection, priority. |
 | **Message Bus** | Priority queue with interrupt bypass, message coalescing, backpressure management. |
 | **Agent Runner** | Agentic loop — tool calling, context management, abort signals, iteration limits. |
-| **Providers** | Groq, Anthropic, OpenAI, xAI (Grok), GitHub Copilot, Ollama, Gladius. Hot-swappable mid-session. |
+| **Providers** | Groq, Anthropic, OpenAI, Gemini, xAI (Grok), GitHub Copilot, Ollama, Gladius. Hot-swappable mid-session. |
 | **Tools** | 18 built-in. File I/O, shell, browser, TTS, memory, process management, messaging. |
 | **Sessions** | Persistent, labeled, TTL-aware. Sub-agent spawning up to depth 3. |
 
@@ -171,6 +171,7 @@ One Node.js daemon runs everything — channels, routing, sessions, tools, provi
     "groq": { "baseUrl": "https://api.groq.com/openai" },
     "anthropic": {},
     "openai": {},
+    "gemini": {},
     "xai": {},
     "ollama": { "baseUrl": "http://127.0.0.1:11434" },
     "github-copilot": {},
@@ -222,6 +223,7 @@ All string values support `${ENV_VAR}` interpolation.
 GROQ_API_KEY=gsk_...           # https://console.groq.com/keys (free tier)
 ANTHROPIC_API_KEY=sk-ant-...   # https://console.anthropic.com/
 OPENAI_API_KEY=sk-...          # https://platform.openai.com/api-keys
+GEMINI_API_KEY=AIza...         # https://aistudio.google.com/apikey
 XAI_API_KEY=xai-...            # https://console.x.ai/
 
 # GitHub Copilot — usually automatic via `gh auth login`
@@ -251,6 +253,7 @@ MACH6_PORT=3006
 | **Groq** | `groq` | `GROQ_API_KEY` env var | ⚡ Fastest (LPU hardware) |
 | **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY` env var | Fast |
 | **OpenAI** | `openai` | `OPENAI_API_KEY` env var | Fast |
+| **Gemini** | `gemini` | `GEMINI_API_KEY` env var | Fast |
 | **xAI (Grok)** | `xai` | `XAI_API_KEY` env var | Fast |
 | **GitHub Copilot** | `github-copilot` | Auto-resolved (see below) — no API key needed | Moderate |
 | **Ollama** | `ollama` | Local HTTP endpoint — no key needed | Varies (local) |
@@ -274,6 +277,17 @@ MACH6_PORT=3006
 | Grok 3 Fast | `grok-3-fast` | Lower latency |
 | Grok 3 Mini | `grok-3-mini` | Lightweight + think mode |
 | Grok 3 Mini Fast | `grok-3-mini-fast` | Fastest Grok |
+
+### Gemini models
+
+| Model | Config value | Notes |
+|-------|-------------|-------|
+| Gemini 2.5 Pro | `gemini-2.5-pro-preview-05-06` | Strongest reasoning, thinking support |
+| Gemini 2.5 Flash | `gemini-2.5-flash-preview-04-17` | Fast + thinking |
+| Gemini 2.0 Flash | `gemini-2.0-flash` | Fast, general purpose |
+| Gemini 1.5 Pro | `gemini-1.5-pro` | Long context (1M tokens) |
+
+> **Gemini thinking support:** Models with thinking enabled return `thoughtSignature` fields. Mach6 preserves these across tool call roundtrips automatically — required by the Gemini API for thinking-enabled sessions.
 
 ### GitHub Copilot token resolution
 
@@ -439,7 +453,7 @@ mach6/
 │   ├── gateway/        # Persistent daemon — signals, hot-reload, turns
 │   ├── heartbeat/      # Activity-aware periodic health checks
 │   ├── memory/         # Index integrity checks
-│   ├── providers/      # LLM providers — Groq, Anthropic, OpenAI, xAI, Copilot, Ollama, Gladius
+│   ├── providers/      # LLM providers — Groq, Anthropic, OpenAI, Gemini, xAI, Copilot, Ollama, Gladius
 │   ├── security/       # Input sanitization
 │   ├── sessions/       # Session store, queue, sub-agents
 │   ├── tools/          # 18 built-in tools, policy engine, registry, MCP bridge
@@ -486,7 +500,7 @@ mach6/
 | Lines of TypeScript | ~15,000+ |
 | Source files | 70+ |
 | Built-in tools | 18+ |
-| LLM providers | 7 |
+| LLM providers | 8 |
 | Channel adapters | 2 + HTTP API |
 | Documentation files | 37 |
 | Cold boot to connected | ~2.3s |
@@ -523,6 +537,7 @@ All paths resolved via `os.tmpdir()` and `os.homedir()` — zero hardcoded Unix 
 | **Mar 3, 2026** | Multi-bot coordination, ATM, sibling yield. v1.3.0. |
 | **Mar 5, 2026** | MCP server, anti-loop, degradation protection. v1.4.0. |
 | **Mar 6, 2026** | Blink, Pulse, COMB, 7 providers, agent wizard. v1.5.0. |
+| **Mar 7, 2026** | Native Gemini provider, 8 providers, multi-user deployment. v1.6.0. |
 
 ---
 

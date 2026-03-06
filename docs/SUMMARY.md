@@ -33,6 +33,7 @@
 * [Groq](providers/groq.md)
 * [Anthropic](providers/anthropic.md)
 * [OpenAI](providers/openai.md)
+* [Gemini](providers/gemini.md)
 * [xAI (Grok)](providers/xai.md)
 * [GitHub Copilot](providers/github-copilot.md)
 * [Ollama](providers/ollama.md)
