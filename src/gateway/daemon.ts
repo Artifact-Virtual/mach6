@@ -926,13 +926,22 @@ export class Mach6Gateway {
       // Send response back through the channel
       if (finalResult.text && finalResult.text !== 'NO_REPLY' && finalResult.text !== 'HEARTBEAT_OK'
           && finalResult.text !== '[Max iterations reached]' && finalResult.text !== '[Blink depth exceeded]') {
-        console.log(`${palette.dim}  [send]${palette.reset} → ${envelope.source.adapterId}/${envelope.source.chatId} ${palette.dim}(${finalResult.text.length} chars)${palette.reset}`);
+        // Auto-mention: in Discord non-DM channels, prepend @sender if not already present
+        let responseText = finalResult.text;
+        if (envelope.source.channelType === 'discord' && envelope.source.chatType !== 'dm' && envelope.source.senderId) {
+          const mentionTag = `<@${envelope.source.senderId}>`;
+          if (!responseText.includes(mentionTag)) {
+            responseText = `${mentionTag} ${responseText}`;
+          }
+        }
+
+        console.log(`${palette.dim}  [send]${palette.reset} → ${envelope.source.adapterId}/${envelope.source.chatId} ${palette.dim}(${responseText.length} chars)${palette.reset}`);
         try {
           const sendResult = await this.channelRegistry.send(
             envelope.source.adapterId,
             envelope.source.chatId,
             {
-              content: finalResult.text,
+              content: responseText,
               replyToId: envelope.metadata.platformMessageId,
             },
           );
@@ -997,9 +1006,13 @@ export class Mach6Gateway {
       parts.push(`<<message_id=${msgId}>>`);
     }
 
-    // Sender context
+    // Sender context — include ID for Discord @mentions
     if (envelope.source.senderName) {
-      parts.push(`[${envelope.source.senderName}]`);
+      if (envelope.source.channelType === 'discord' && envelope.source.senderId) {
+        parts.push(`[${envelope.source.senderName}] (Discord ID: ${envelope.source.senderId}, mention as <@${envelope.source.senderId}>)`);
+      } else {
+        parts.push(`[${envelope.source.senderName}]`);
+      }
     }
 
     // Reply context

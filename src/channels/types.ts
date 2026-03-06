@@ -332,7 +332,7 @@ export interface OutboundFormatter {
 const VALID_TRANSITIONS: Record<AdapterHealthState, AdapterHealthState[]> = {
   connected: ['degraded', 'disconnected'],
   degraded: ['connected', 'disconnected'],
-  disconnected: ['reconnecting'],
+  disconnected: ['reconnecting', 'connected'],
   reconnecting: ['connected', 'disconnected'],
 };
 

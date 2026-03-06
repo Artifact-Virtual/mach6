@@ -15,8 +15,17 @@ import {
   box, sectionHeader, ok, warn, fail, info, step, kvLine,
   divider, thickDivider, progressBar, versionBanner,
 } from './brand.js';
+import { scaffoldAgent } from './agent-scaffold.js';
 
 // ── Types ────────────────────────────────────────────────────
+
+interface AgentConfig {
+  createAgent: boolean;
+  agentName: string;
+  agentEmoji: string;
+  agentPersonality: string;
+  creatorName: string;
+}
 
 interface WizardConfig {
   provider: string;
@@ -50,7 +59,9 @@ const PROVIDERS = [
   { id: 'github-copilot', name: 'GitHub Copilot', detail: 'auto-auth via gh CLI', defaultModel: 'claude-sonnet-4', needsKey: false, icon: '◈' },
   { id: 'anthropic', name: 'Anthropic', detail: 'Claude models', defaultModel: 'claude-sonnet-4-20250514', needsKey: true, icon: '◉' },
   { id: 'openai', name: 'OpenAI', detail: 'GPT-4o / o3', defaultModel: 'gpt-4o', needsKey: true, icon: '◎' },
-  { id: 'gladius', name: 'Gladius', detail: 'local model', defaultModel: 'gladius-125m', needsKey: false, icon: '◇' },
+  { id: 'ollama', name: 'Ollama', detail: 'local models (llama, qwen, etc.)', defaultModel: 'qwen3:4b', needsKey: false, icon: '◆' },
+  { id: 'groq', name: 'Groq', detail: 'fast inference', defaultModel: 'llama-3.3-70b-versatile', needsKey: true, icon: '◊' },
+  { id: 'gladius', name: 'Gladius', detail: 'Artifact Virtual kernel', defaultModel: 'gladius-125m', needsKey: false, icon: '◇' },
 ];
 
 const MODELS_BY_PROVIDER: Record<string, { id: string; name: string }[]> = {
@@ -72,6 +83,18 @@ const MODELS_BY_PROVIDER: Record<string, { id: string; name: string }[]> = {
   'gladius': [
     { id: 'gladius-125m', name: 'Gladius 125M' },
   ],
+  'ollama': [
+    { id: 'qwen3:4b', name: 'Qwen 3 4B' },
+    { id: 'llama3.2:3b', name: 'Llama 3.2 3B' },
+    { id: 'llama3.1:8b', name: 'Llama 3.1 8B' },
+    { id: 'deepseek-r1:8b', name: 'DeepSeek R1 8B' },
+    { id: 'mistral:7b', name: 'Mistral 7B' },
+  ],
+  'groq': [
+    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B' },
+    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant' },
+    { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
+  ],
 };
 
 const POLICIES = [
@@ -85,7 +108,7 @@ const GROUP_POLICIES = [
   { id: 'off', name: 'Disabled', detail: 'ignore all group messages' },
 ];
 
-const WIZARD_STEPS = ['Provider', 'Channels', 'Access', 'Workspace', 'Review'];
+const WIZARD_STEPS = ['Agent', 'Provider', 'Channels', 'Access', 'Workspace', 'Review'];
 
 // ── Wizard Class ─────────────────────────────────────────────
 
@@ -256,9 +279,47 @@ class Wizard {
       ownerIds: [], dmPolicy: 'allowlist', groupPolicy: 'mention-only',
     };
 
-    // ── 1. Provider ──────────────────────────────────
+    const agentConfig: AgentConfig = {
+      createAgent: false,
+      agentName: '',
+      agentEmoji: '🤖',
+      agentPersonality: '',
+      creatorName: '',
+    };
+
+    // ── 0. Agent Identity ────────────────────────────
 
     this.currentStep = 0;
+    this.println(sectionHeader('Agent Identity'));
+    this.println(`  ${this.stepProgress()}`);
+    this.println();
+
+    agentConfig.createAgent = await this.confirm('Create your AI agent identity?', true);
+
+    if (agentConfig.createAgent) {
+      agentConfig.agentName = await this.ask('Give your agent a name:');
+      if (!agentConfig.agentName) {
+        agentConfig.agentName = 'Agent';
+        this.println(info(`Using default name: ${palette.cyan}Agent${palette.reset}`));
+      }
+
+      agentConfig.agentEmoji = await this.ask('Pick an emoji for your agent:', '🤖');
+
+      agentConfig.agentPersonality = await this.ask('Describe their personality in one line:', 'Sharp, helpful, and curious');
+
+      agentConfig.creatorName = await this.ask('Your name (the creator):', os.userInfo().username);
+
+      this.println();
+      const agentLine = `${agentConfig.agentEmoji} ${gradient(agentConfig.agentName, [0, 229, 255], [138, 43, 226])}`;
+      this.println(ok(`${agentLine} ${palette.dim}— "${agentConfig.agentPersonality}"${palette.reset}`));
+      this.println(info(`Identity files will be created in your workspace`));
+    } else {
+      this.println(info(`Skipped — you can create identity files manually later`));
+    }
+
+    // ── 1. Provider ──────────────────────────────────
+
+    this.currentStep = 1;
     this.println(sectionHeader('LLM Provider'));
     this.println(`  ${this.stepProgress()}`);
     this.println();
@@ -276,6 +337,9 @@ class Wizard {
       else this.println(warn(`No API key — set it in .env later`));
     } else if (config.provider === 'github-copilot') {
       this.println(info(`Auto-resolves tokens via ${palette.cyan}\`gh auth login\`${palette.reset}`));
+    } else if (config.provider === 'ollama') {
+      this.println(info(`Requires ${palette.cyan}ollama${palette.reset} running locally — ${palette.dim}ollama.com${palette.reset}`));
+      this.println(info(`Pull a model first: ${palette.gold}ollama pull qwen3:4b${palette.reset}`));
     }
 
     // Model
@@ -289,7 +353,7 @@ class Wizard {
 
     // ── 2. Channels ──────────────────────────────────
 
-    this.currentStep = 1;
+    this.currentStep = 2;
     this.println(sectionHeader('Channels'));
     this.println(`  ${this.stepProgress()}`);
     this.println();
@@ -334,7 +398,7 @@ class Wizard {
 
     // ── 3. Owner & Policies ──────────────────────────
 
-    this.currentStep = 2;
+    this.currentStep = 3;
     this.println(sectionHeader('Access Control'));
     this.println(`  ${this.stepProgress()}`);
     this.println();
@@ -356,7 +420,7 @@ class Wizard {
 
     // ── 4. Workspace & Server ────────────────────────
 
-    this.currentStep = 3;
+    this.currentStep = 4;
     this.println(sectionHeader('Workspace'));
     this.println(`  ${this.stepProgress()}`);
     this.println();
@@ -378,12 +442,16 @@ class Wizard {
 
     // ── 5. Summary ───────────────────────────────────
 
-    this.currentStep = 4;
+    this.currentStep = 5;
     this.println(sectionHeader('Review'));
     this.println(`  ${this.stepProgress()}`);
     this.println();
 
     const summaryLines = [
+      ...(agentConfig.createAgent ? [
+        kvLine('Agent', `${agentConfig.agentEmoji} ${palette.cyan}${agentConfig.agentName}${palette.reset}`),
+        kvLine('Personality', `${palette.dim}"${agentConfig.agentPersonality}"${palette.reset}`),
+      ] : []),
       kvLine('Provider', `${palette.cyan}${provider.name}${palette.reset} ${palette.dim}/${palette.reset} ${palette.white}${config.model}${palette.reset}`),
       kvLine('Discord', config.discord.enabled ? `${palette.green}● enabled${palette.reset}` : `${palette.dim}○ disabled${palette.reset}`),
       kvLine('WhatsApp', config.whatsapp.enabled ? `${palette.green}● enabled${palette.reset}` : `${palette.dim}○ disabled${palette.reset}`),
@@ -439,6 +507,29 @@ class Wizard {
       this.writeEnv(envPath, config);
     }
 
+    // ── Agent Identity Files ─────────────────────────
+
+    if (agentConfig.createAgent) {
+      this.println();
+      const wsPath = path.resolve(config.workspace);
+      const created = scaffoldAgent({
+        name: agentConfig.agentName,
+        emoji: agentConfig.agentEmoji,
+        personality: agentConfig.agentPersonality,
+        creatorName: agentConfig.creatorName,
+        workspace: wsPath,
+      });
+
+      if (created.length > 0) {
+        for (const file of created) {
+          this.println(ok(`Created ${palette.cyan}${file}${palette.reset}`));
+        }
+        this.println(info(`${palette.white}${created.length}${palette.reset} identity files in ${palette.cyan}${wsPath}${palette.reset}`));
+      } else {
+        this.println(info('Identity files already exist — skipped'));
+      }
+    }
+
     // ── Done ─────────────────────────────────────────
 
     this.println();
@@ -451,8 +542,10 @@ class Wizard {
 
     const nextSteps = [
       `${palette.dim}1.${palette.reset} Review ${palette.cyan}mach6.json${palette.reset} and ${palette.cyan}.env${palette.reset}`,
-      `${palette.dim}2.${palette.reset} Build:  ${palette.gold}npm run build${palette.reset}`,
-      `${palette.dim}3.${palette.reset} Start:  ${palette.gold}node dist/gateway/daemon.js --config=mach6.json${palette.reset}`,
+      ...(agentConfig.createAgent ? [
+        `${palette.dim}2.${palette.reset} Customize ${palette.cyan}SOUL.md${palette.reset} and ${palette.cyan}IDENTITY.md${palette.reset} in your workspace`,
+      ] : []),
+      `${palette.dim}${agentConfig.createAgent ? '3' : '2'}.${palette.reset} Start:  ${palette.gold}npx mach6${palette.reset} ${palette.dim}or${palette.reset} ${palette.gold}node dist/gateway/daemon.js --config=mach6.json${palette.reset}`,
     ];
     if (config.whatsapp.enabled) {
       nextSteps.push(`${palette.dim}4.${palette.reset} Scan the WhatsApp QR code on first boot`);
@@ -485,6 +578,8 @@ class Wizard {
         'github-copilot': {},
         'anthropic': {},
         'openai': {},
+        'ollama': { baseUrl: 'http://127.0.0.1:11434' },
+        'groq': {},
         'gladius': { baseUrl: 'http://127.0.0.1:8741' },
       },
       ownerIds: config.ownerIds,
@@ -548,6 +643,12 @@ class Wizard {
       lines.push(`OPENAI_API_KEY=${config.apiKey}`);
     } else {
       lines.push('# OPENAI_API_KEY=');
+    }
+
+    if (config.provider === 'groq' && config.apiKey) {
+      lines.push(`GROQ_API_KEY=${config.apiKey}`);
+    } else {
+      lines.push('# GROQ_API_KEY=');
     }
 
     lines.push('');
