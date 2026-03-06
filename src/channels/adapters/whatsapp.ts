@@ -23,6 +23,7 @@ import { Boom } from '@hapi/boom';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { exec } from 'node:child_process';
 import { BaseAdapter } from '../adapter.js';
 import { formatForChannel } from '../formatter.js';
 import { logInbound, logOutbound, logReaction } from '../message-logger.js';
@@ -89,6 +90,7 @@ export class WhatsAppAdapter extends BaseAdapter {
   private markOnline = true;
   private onQR?: (qr: string) => void;
   private selfJid = '';
+  private qrAttempts = 0;
 
   constructor(id = 'whatsapp-main') {
     super();
@@ -117,7 +119,7 @@ export class WhatsAppAdapter extends BaseAdapter {
         creds: state.creds,
         keys: makeCacheableSignalKeyStore(state.keys, undefined as any),
       },
-      printQRInTerminal: !this.onQR, // Print to terminal if no custom handler
+      printQRInTerminal: false, // Deprecated in Baileys — we render QR ourselves
       markOnlineOnConnect: this.markOnline,
       generateHighQualityLinkPreview: false,
       syncFullHistory: false,
@@ -130,8 +132,50 @@ export class WhatsAppAdapter extends BaseAdapter {
     this.socket.ev.on('connection.update', (update) => {
       const { connection, lastDisconnect, qr } = update;
 
-      if (qr && this.onQR) {
-        this.onQR(qr);
+      if (qr) {
+        // Track QR attempts for max retry
+        this.qrAttempts++;
+        
+        // Render QR code in terminal
+        console.log(`\n  \x1b[38;2;255;193;37m📱 WhatsApp QR Code — scan with WhatsApp to link (attempt ${this.qrAttempts}):\x1b[0m\n`);
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const qrt = require('qrcode-terminal');
+          qrt.generate(qr, { small: true });
+        } catch {
+          console.log(`  QR Data: ${qr}\n`);
+        }
+        
+        // Save QR as scannable HTML file
+        const qrHtmlPath = path.join(process.cwd(), 'whatsapp-qr.html');
+        const qrEscaped = qr.replace(/'/g, "\\'").replace(/\\/g, '\\\\');
+        const qrHtml = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Mach6 — WhatsApp QR</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"><\/script>
+<style>body{background:#0a0a0f;color:#fff;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0}
+h1{background:linear-gradient(135deg,#8a2be2,#00e5ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:2em}
+p{color:#9e9eaa;margin:8px 0}#qr{margin:24px;padding:16px;background:#fff;border-radius:12px}
+.refresh{color:#ffc125;font-size:0.9em;margin-top:16px}</style></head>
+<body><h1>⚡ Mach6</h1><p>Scan this QR code with WhatsApp to link your agent</p>
+<canvas id="qr"></canvas>
+<p class="refresh">QR refreshes every ~30s. Reload this page if expired.</p>
+<script>QRCode.toCanvas(document.getElementById('qr'),'${qrEscaped}',{width:300,margin:2},function(e){if(e)document.getElementById('qr').outerHTML='<p style="color:red">QR render failed: '+e.message+'</p>'});<\/script>
+</body></html>`;
+        try {
+          fs.writeFileSync(qrHtmlPath, qrHtml);
+          console.log(`  \x1b[38;2;0;230;118m✓\x1b[0m QR saved to: \x1b[38;2;0;229;255m${qrHtmlPath}\x1b[0m`);
+          console.log(`  \x1b[38;2;158;158;168mOpen this file in your browser to scan the QR code.\x1b[0m\n`);
+          
+          // Try to auto-open in default browser (fire and forget)
+          const openCmd = process.platform === 'win32' ? 'start ""' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+          exec(`${openCmd} "${qrHtmlPath}"`, () => {});
+        } catch (err) {
+          console.log(`  \x1b[38;2;158;158;168mCouldn't save QR file. Copy the QR data above into any QR generator.\x1b[0m\n`);
+        }
+        
+        if (this.onQR) {
+          this.onQR(qr);
+        }
       }
 
       if (connection === 'open') {
