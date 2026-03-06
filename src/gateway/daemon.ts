@@ -767,7 +767,7 @@ export class Mach6Gateway {
     // Build sandbox context for this session
     const ownerIds = this.gatewayConfig.ownerIds ?? [];
     const isOwner = ownerIds.includes(envelope.source.senderId);
-    const chatType = (envelope.source.chatId.includes('@g.') || envelope.metadata.guildId) ? 'group' as const : 'direct' as const;
+    const chatType = (envelope.source.chatType === 'channel' || envelope.source.chatType === 'thread' || envelope.source.chatType === 'group' || envelope.source.chatId.includes('@g.') || envelope.metadata.guildId) ? 'group' as const : 'direct' as const;
     const sandboxCtx: SessionContext = {
       sessionId,
       adapterId: envelope.source.adapterId,
@@ -816,7 +816,7 @@ export class Mach6Gateway {
         workspace: this.config.workspace,
         tools: this.toolRegistry.list().map(t => t.name),
         channel: envelope.source.channelType,
-        chatType: envelope.source.chatId.includes('@g.') ? 'group' : 'direct',
+        chatType: envelope.source.chatType === 'channel' || envelope.source.chatType === 'thread' || envelope.source.chatType === 'group' || envelope.source.chatId.includes('@g.') ? 'group' : 'direct',
         senderId: envelope.source.senderId,
         workspaceFiles: adapterFiles,
       });

@@ -60,13 +60,9 @@ export interface SandboxDenial {
 const PRIMARY_ADAPTERS = new Set(['discord-main', 'whatsapp-main']);
 
 export function classifySession(ctx: SessionContext): SessionTier {
-  // Admin: owner DM on any adapter (if the owner is talking to us directly, they're admin)
-  if (ctx.isOwner && ctx.chatType === 'direct') {
-    return 'admin';
-  }
-  // Standard: owner in group chats
+  // Admin: owner anywhere (Ali controls the system regardless of channel type)
   if (ctx.isOwner) {
-    return 'standard';
+    return 'admin';
   }
   // Restricted: non-owner
   return 'restricted';
