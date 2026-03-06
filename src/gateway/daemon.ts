@@ -55,6 +55,8 @@ import { anthropicProvider } from '../providers/anthropic.js';
 import { openaiProvider } from '../providers/openai.js';
 import { githubCopilotProvider } from '../providers/github-copilot.js';
 import { gladiusProvider } from '../providers/gladius.js';
+import { groqProvider } from '../providers/groq.js';
+import { ollamaProvider } from '../providers/ollama.js';
 import type { BusEnvelope, ChannelPolicy, OutboundMessage } from '../channels/types.js';
 import { formatForChannel } from '../channels/formatter.js';
 import { createSandboxedRegistry, type SessionContext } from '../tools/sandbox.js';
@@ -112,6 +114,8 @@ const PROVIDERS = new Map<string, Provider>([
   ['openai', openaiProvider],
   ['github-copilot', githubCopilotProvider],
   ['gladius', gladiusProvider],
+  ['groq', groqProvider],
+  ['ollama', ollamaProvider],
 ]);
 
 // ─── Gateway ───────────────────────────────────────────────────────────────
@@ -136,6 +140,8 @@ export class Mach6Gateway {
   private mcpBridges: McpBridge[] = [];
   /** Per-adapter system prompt file overrides (adapterId → file list) */
   private adapterPromptFiles = new Map<string, { path: string; label: string }[]>();
+  /** Fallback provider chain — tried in order if primary fails */
+  private fallbackChain: { name: string; provider: Provider }[] = [];
 
   constructor(gatewayConfig: GatewayConfig) {
     this.gatewayConfig = gatewayConfig;
@@ -155,6 +161,18 @@ export class Mach6Gateway {
       throw new Error(`Unknown provider: ${this.providerName}`);
     }
     this.model = this.config.defaultModel;
+
+    // Build fallback provider chain
+    if (this.config.fallbackProviders?.length) {
+      for (const fbName of this.config.fallbackProviders) {
+        const fbProvider = PROVIDERS.get(fbName);
+        if (fbProvider) {
+          this.fallbackChain.push({ name: fbName, provider: fbProvider });
+        } else {
+          console.warn(`[config] Fallback provider '${fbName}' not found — skipping`);
+        }
+      }
+    }
 
     // Tools
     this.toolRegistry = new ToolRegistry();
@@ -232,6 +250,10 @@ export class Mach6Gateway {
     console.log(`  ${palette.bold}${gatewayTitle}${palette.reset}`);
     console.log();
     console.log(kvLine('Provider', `${palette.cyan}${this.providerName}${palette.reset}${palette.dim}/${palette.reset}${palette.white}${this.model}${palette.reset}`));
+    if (this.fallbackChain.length > 0) {
+      const fbNames = this.fallbackChain.map(fb => `${palette.yellow}${fb.name}${palette.reset}`).join(` ${palette.dim}→${palette.reset} `);
+      console.log(kvLine('Fallback', fbNames));
+    }
     console.log(kvLine('Tools', `${palette.gold}${this.toolRegistry.list().length}${palette.reset} ${palette.dim}registered${palette.reset}`));
     console.log(kvLine('Workspace', `${palette.cyan}${this.config.workspace}${palette.reset}`));
     console.log(kvLine('PID', `${palette.dim}${process.pid}${palette.reset}`));
@@ -528,6 +550,15 @@ export class Mach6Gateway {
             onToolEnd: (name) => console.log(`  ${palette.green}✓ ${name}${palette.reset}`),
           });
 
+          // Handle abort — save state and break
+          if (result.aborted) {
+            console.log(`${palette.dim}  [BLINK]${palette.reset} ${palette.yellow}Agent aborted${palette.reset} (http). Preserving session state.`);
+            session.messages = result.messages;
+            this.sessionManager.save(session);
+            finalResult = result;
+            break;
+          }
+
           if (result.maxIterationsHit && blinkCtrl.needsBlink(true)) {
             blinkCtrl.recordBlink(result.iterations, result.toolCalls.length);
             console.log(`${palette.dim}  [BLINK]${palette.reset} ${palette.yellow}⚡ Blink #${blinkCtrl.getState().depth}${palette.reset} (http) — continuing`);
@@ -549,15 +580,17 @@ export class Mach6Gateway {
         }
 
         if (!finalResult) {
-          finalResult = { text: '[Blink depth exceeded]', messages: currentSessionMessages, toolCalls: [], iterations: 0, maxIterationsHit: true };
+          finalResult = { text: '[Blink depth exceeded]', messages: currentSessionMessages, toolCalls: [], iterations: 0, maxIterationsHit: true, aborted: false };
         }
 
-        // Save session
-        session.messages = finalResult.messages;
-        if (finalResult.text && finalResult.text !== '[Max iterations reached]' && finalResult.text !== '[Blink depth exceeded]') {
-          session.messages.push({ role: 'assistant', content: finalResult.text });
+        // Save session (skip if already saved during abort)
+        if (!finalResult.aborted) {
+          session.messages = finalResult.messages;
+          if (finalResult.text && finalResult.text !== '[Max iterations reached]' && finalResult.text !== '[Blink depth exceeded]') {
+            session.messages.push({ role: 'assistant', content: finalResult.text });
+          }
+          this.sessionManager.save(session);
         }
-        this.sessionManager.save(session);
 
         // PULSE: record total iterations
         const blinkState = blinkCtrl.getState();
@@ -832,35 +865,81 @@ export class Mach6Gateway {
       let currentSessionMessages = session.messages;
       let finalResult: Awaited<ReturnType<typeof runAgent>> | null = null;
 
+      // Build the agent runner options factory (reused for fallback)
+      const makeRunOpts = (useProvider: Provider, useConfig: ProviderConfig) => ({
+        provider: useProvider,
+        providerConfig: useConfig,
+        toolRegistry: sandboxedTools,
+        sessionId,
+        maxIterations: this.pulseBudget.getEffectiveCap(),
+        blinkController: blinkCtrl,
+        abortSignal: controller.signal,
+        onEvent: (ev: any) => {
+          if (ev.type === 'usage') {
+            this.sessionManager.trackUsage(session, ev.usage.inputTokens, ev.usage.outputTokens);
+            console.log(`  ${palette.dim}📊 +${ev.usage.inputTokens}in / +${ev.usage.outputTokens}out${palette.reset}`);
+          }
+          if (ev.type === 'text_delta' || ev.type === 'done') {
+            presenceManager.llmStreaming();
+          }
+        },
+        onToolStart: (name: string) => {
+          console.log(`  ${palette.violet}⚡ ${name}${palette.reset}`);
+          presenceManager.toolStart(name);
+        },
+        onToolEnd: (name: string, res: string) => {
+          const preview = res.length > 100 ? res.slice(0, 100) + '...' : res;
+          console.log(`  ${palette.green}✓ ${name}${palette.reset} ${palette.dim}${preview.split('\n')[0]}${palette.reset}`);
+          presenceManager.toolEnd(name);
+        },
+      });
+
+      // Helper: run agent with fallback chain
+      const runWithFallback = async (msgs: typeof currentSessionMessages): Promise<Awaited<ReturnType<typeof runAgent>>> => {
+        try {
+          return await runAgent(msgs, makeRunOpts(this.provider, provConfig));
+        } catch (primaryErr) {
+          // Try each fallback provider in order
+          for (const fb of this.fallbackChain) {
+            console.log(`${palette.dim}  [fallback]${palette.reset} ${palette.yellow}Primary ${this.providerName} failed${palette.reset}: ${primaryErr instanceof Error ? primaryErr.message : primaryErr}`);
+            console.log(`${palette.dim}  [fallback]${palette.reset} Trying ${palette.cyan}${fb.name}${palette.reset}...`);
+            try {
+              const fbCfg = (this.config.providers as Record<string, any>)[fb.name] ?? {};
+              const fbProvConfig: ProviderConfig = {
+                model: fbCfg.model ?? this.model,
+                maxTokens: this.config.maxTokens,
+                temperature: this.config.temperature,
+                systemPrompt: this.systemPrompt,
+                ...fbCfg,
+              };
+              const result = await runAgent(msgs, makeRunOpts(fb.provider, fbProvConfig));
+              console.log(`${palette.dim}  [fallback]${palette.reset} ${palette.green}${fb.name} succeeded${palette.reset}`);
+              return result;
+            } catch (fbErr) {
+              console.log(`${palette.dim}  [fallback]${palette.reset} ${palette.red}${fb.name} also failed${palette.reset}: ${fbErr instanceof Error ? fbErr.message : fbErr}`);
+              // Continue to next fallback
+            }
+          }
+          // All fallbacks exhausted — throw original error
+          throw primaryErr;
+        }
+      };
+
       // BLINK loop: run agent, check if budget hit, blink and continue if needed
       while (blinkCtrl.shouldContinue()) {
-        const result = await runAgent(currentSessionMessages, {
-          provider: this.provider,
-          providerConfig: provConfig,
-          toolRegistry: sandboxedTools,
-          sessionId,
-          maxIterations: this.pulseBudget.getEffectiveCap(),
-          blinkController: blinkCtrl,
-          abortSignal: controller.signal,
-          onEvent: (ev) => {
-            if (ev.type === 'usage') {
-              this.sessionManager.trackUsage(session, ev.usage.inputTokens, ev.usage.outputTokens);
-              console.log(`  ${palette.dim}📊 +${ev.usage.inputTokens}in / +${ev.usage.outputTokens}out${palette.reset}`);
-            }
-            if (ev.type === 'text_delta' || ev.type === 'done') {
-              presenceManager.llmStreaming();
-            }
-          },
-          onToolStart: (name) => {
-            console.log(`  ${palette.violet}⚡ ${name}${palette.reset}`);
-            presenceManager.toolStart(name);
-          },
-          onToolEnd: (name, res) => {
-            const preview = res.length > 100 ? res.slice(0, 100) + '...' : res;
-            console.log(`  ${palette.green}✓ ${name}${palette.reset} ${palette.dim}${preview.split('\n')[0]}${palette.reset}`);
-            presenceManager.toolEnd(name);
-          },
-        });
+        const result = await runWithFallback(currentSessionMessages);
+
+        // Check if agent was aborted (SIGTERM, interrupt, new message)
+        // Save session state so work-in-progress is not lost on restart
+        if (result.aborted) {
+          console.log(`${palette.dim}  [BLINK]${palette.reset} ${palette.yellow}Agent aborted${palette.reset} at iteration ${result.iterations}. Preserving session state.`);
+          session.messages = result.messages;
+          this.sessionManager.save(session);
+          console.log(`${palette.dim}  [BLINK]${palette.reset} Session ${palette.violet}${sessionId}${palette.reset} saved (${result.messages.length} messages, ${result.toolCalls.length} tool calls preserved)`);
+          // Don't blink, don't continue — the process is shutting down
+          finalResult = result;
+          break;
+        }
 
         // Check if BLINK is needed
         if (result.maxIterationsHit && blinkCtrl.needsBlink(true)) {
@@ -898,20 +977,23 @@ export class Mach6Gateway {
       // If loop exhausted without a finalResult (shouldn't happen but safety net)
       if (!finalResult) {
         console.warn(`[BLINK] Loop ended without result — depth capped`);
-        finalResult = { text: '[Blink depth exceeded]', messages: currentSessionMessages, toolCalls: [], iterations: 0, maxIterationsHit: true };
+        finalResult = { text: '[Blink depth exceeded]', messages: currentSessionMessages, toolCalls: [], iterations: 0, maxIterationsHit: true, aborted: false };
       }
 
       const turnElapsed = Date.now() - turnStartTime;
       const blinkState = blinkCtrl.getState();
       const blinkInfo = blinkState.depth > 0 ? `, ${blinkState.depth} blinks, ${blinkState.totalIterations} total iter` : '';
-      console.log(`${palette.dim}  [turn]${palette.reset} Complete ${palette.dim}— ${turnElapsed}ms, ${finalResult.iterations} iter, ${finalResult.toolCalls.length} tools${blinkInfo}${palette.reset}`);
+      const abortInfo = finalResult.aborted ? ' (ABORTED — state preserved)' : '';
+      console.log(`${palette.dim}  [turn]${palette.reset} Complete ${palette.dim}— ${turnElapsed}ms, ${finalResult.iterations} iter, ${finalResult.toolCalls.length} tools${blinkInfo}${abortInfo}${palette.reset}`);
 
-      // Save session
-      session.messages = finalResult.messages;
-      if (finalResult.text && finalResult.text !== '[Max iterations reached]' && finalResult.text !== '[Blink depth exceeded]') {
-        session.messages.push({ role: 'assistant', content: finalResult.text });
+      // Save session (skip if already saved during abort handling above)
+      if (!finalResult.aborted) {
+        session.messages = finalResult.messages;
+        if (finalResult.text && finalResult.text !== '[Max iterations reached]' && finalResult.text !== '[Blink depth exceeded]') {
+          session.messages.push({ role: 'assistant', content: finalResult.text });
+        }
+        this.sessionManager.save(session);
       }
-      this.sessionManager.save(session);
 
       // PULSE: record TOTAL iteration count (across all blinks)
       const totalIter = blinkState.depth > 0 ? blinkState.totalIterations : finalResult.iterations;
@@ -923,8 +1005,8 @@ export class Mach6Gateway {
       // Auto-archive bloated sessions (>200KB → keep last 30 messages)
       this.sessionManager.autoArchive();
 
-      // Send response back through the channel
-      if (finalResult.text && finalResult.text !== 'NO_REPLY' && finalResult.text !== 'HEARTBEAT_OK'
+      // Send response back through the channel (skip if aborted — process is shutting down)
+      if (!finalResult.aborted && finalResult.text && finalResult.text !== 'NO_REPLY' && finalResult.text !== 'HEARTBEAT_OK'
           && finalResult.text !== '[Max iterations reached]' && finalResult.text !== '[Blink depth exceeded]') {
         // Auto-mention: in Discord non-DM channels, prepend @sender if not already present
         let responseText = finalResult.text;
@@ -1172,10 +1254,19 @@ export class Mach6Gateway {
           this.providerName = this.config.defaultProvider;
           this.provider = PROVIDERS.get(this.providerName)!;
           this.model = this.config.defaultModel;
+          // Rebuild fallback chain
+          this.fallbackChain = [];
+          if (this.config.fallbackProviders?.length) {
+            for (const fbName of this.config.fallbackProviders) {
+              const fbProvider = PROVIDERS.get(fbName);
+              if (fbProvider) this.fallbackChain.push({ name: fbName, provider: fbProvider });
+            }
+          }
           this.systemPrompt = buildSystemPrompt({
             workspace: this.config.workspace,
             tools: this.toolRegistry.list().map(t => t.name),
           });
+          console.log(`${palette.dim}  [gateway]${palette.reset} Provider: ${palette.cyan}${this.providerName}/${this.model}${palette.reset}${this.fallbackChain.length > 0 ? ` → fallback: ${this.fallbackChain.map(f => f.name).join(' → ')}` : ''}`);
           console.log(`${palette.dim}  [gateway]${palette.reset} System prompt refreshed ${palette.dim}(${this.systemPrompt.length} chars)${palette.reset}`);
           console.log(ok('Config reloaded successfully'));
         } catch (err) {

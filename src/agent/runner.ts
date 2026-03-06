@@ -40,11 +40,18 @@ export interface RunResult {
   toolCalls: { name: string; input: Record<string, unknown>; result: string }[];
   iterations: number;
   maxIterationsHit: boolean;
+  aborted: boolean;  // True if agent was interrupted externally (SIGTERM, new message, etc.)
   temperatureHistory?: Array<{ iteration: number; category: TaskCategory; temperature: number }>;
 }
 
 /**
  * Run the agent loop: send messages to LLM, process tool calls, repeat until done.
+ * 
+ * Handles three termination modes:
+ * 1. Normal completion — LLM responds without tool calls
+ * 2. Budget exhaustion — maxIterations hit → BLINK handles continuation
+ * 3. Abort — external signal (SIGTERM, interrupt) → returns partial result with aborted=true
+ *    so the daemon can save session state before shutdown
  */
 export async function runAgent(
   messages: Message[],
@@ -66,14 +73,30 @@ export async function runAgent(
 
     // PULSE dynamic expansion: if approaching cap, expand to full budget
     if (iterations >= PULSE_EXPAND_THRESHOLD && maxIter === initialMaxIter && initialMaxIter < PULSE_EXPANDED_CAP) {
+      const oldCap = maxIter;
       maxIter = PULSE_EXPANDED_CAP;
       console.log(`[PULSE] Expanding iteration cap ${initialMaxIter} → ${PULSE_EXPANDED_CAP} at iteration ${iterations}`);
+
+      // Notify BLINK that the wall moved — re-arm prepare for the new cap
+      if (config.blinkController) {
+        config.blinkController.notifyCapExpanded(oldCap, maxIter);
+      }
     }
 
-    // Check if aborted (interrupt from bus)
+    // Check if aborted (interrupt from bus or SIGTERM)
+    // Return partial result instead of throwing — lets daemon save session state
     if (config.abortSignal?.aborted) {
       const reason = config.abortSignal.reason ?? 'aborted';
-      throw new Error(`Agent turn aborted: ${reason}`);
+      console.log(`[runner] Aborted at iteration ${iterations}: ${reason}. Returning partial result for state preservation.`);
+      return {
+        text: '',
+        messages: currentMessages,
+        toolCalls: allToolCalls,
+        iterations,
+        maxIterationsHit: false,
+        aborted: true,
+        temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined,
+      };
     }
 
     // Check context monitor before each iteration (Pain #3)
@@ -88,6 +111,12 @@ export async function runAgent(
         const prepMsg = config.blinkController.getPrepareMessage();
         currentMessages.push({ role: 'user', content: prepMsg });
         console.log(`[BLINK] Prepare message injected at iteration ${iterations} (${remaining} remaining)`);
+      }
+      // BLINK checkpoint: periodic state save for long runs (external kill safety)
+      else if (config.blinkController.shouldCheckpoint(iterations)) {
+        const cpMsg = config.blinkController.getCheckpointMessage(iterations);
+        currentMessages.push({ role: 'user', content: cpMsg });
+        console.log(`[BLINK] Checkpoint injected at iteration ${iterations}/${maxIter}`);
       }
     }
 
@@ -109,6 +138,7 @@ export async function runAgent(
           toolCalls: allToolCalls,
           iterations,
           maxIterationsHit: true,
+          aborted: false,
           temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined,
         };
       }
@@ -135,7 +165,26 @@ export async function runAgent(
     const tools = config.toolRegistry.toProviderFormat();
     console.log(`[runner] Iteration ${iterations}/${maxIter}: ${truncated.length} messages, calling LLM...`);
     const streamStartTime = Date.now();
-    const stream = config.provider.stream(truncated, tools, effectiveProviderConfig);
+
+    let stream;
+    try {
+      stream = config.provider.stream(truncated, tools, effectiveProviderConfig);
+    } catch (err) {
+      // If stream creation fails (e.g., abort during setup), return partial
+      if (config.abortSignal?.aborted) {
+        console.log(`[runner] Aborted during stream setup at iteration ${iterations}. Returning partial result.`);
+        return {
+          text: '',
+          messages: currentMessages,
+          toolCalls: allToolCalls,
+          iterations,
+          maxIterationsHit: false,
+          aborted: true,
+          temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined,
+        };
+      }
+      throw err;
+    }
 
     // Collect response
     let textAccum = '';
@@ -143,49 +192,64 @@ export async function runAgent(
     const toolInputBuffers = new Map<string, string>(); // id → accumulated JSON string
     let currentToolId = '';
 
-    for await (const event of stream) {
-      config.onEvent?.(event);
+    try {
+      for await (const event of stream) {
+        config.onEvent?.(event);
 
-      switch (event.type) {
-        case 'text_delta':
-          textAccum += event.text;
-          break;
+        switch (event.type) {
+          case 'text_delta':
+            textAccum += event.text;
+            break;
 
-        case 'tool_use_start':
-          currentToolId = event.id;
-          toolInputBuffers.set(event.id, '');
-          break;
+          case 'tool_use_start':
+            currentToolId = event.id;
+            toolInputBuffers.set(event.id, '');
+            break;
 
-        case 'tool_use_delta':
-          // Accumulate tool input JSON fragments
-          const existing = toolInputBuffers.get(event.id) ?? '';
-          toolInputBuffers.set(event.id, existing + event.input);
-          break;
+          case 'tool_use_delta':
+            // Accumulate tool input JSON fragments
+            const existing = toolInputBuffers.get(event.id) ?? '';
+            toolInputBuffers.set(event.id, existing + event.input);
+            break;
 
-        case 'tool_use_end': {
-          const rawInput = toolInputBuffers.get(event.id) ?? '{}';
-          let parsedInput: Record<string, unknown> = {};
-          try { parsedInput = JSON.parse(rawInput); } catch { /* empty */ }
+          case 'tool_use_end': {
+            const rawInput = toolInputBuffers.get(event.id) ?? '{}';
+            let parsedInput: Record<string, unknown> = {};
+            try { parsedInput = JSON.parse(rawInput); } catch { /* empty */ }
 
-          // Find the tool name from the start event — we need to track it
-          // The tool_use_start already has the name, but tool_use_end doesn't
-          // We look it up from pending or use the last started tool
-          const startEvent = pendingToolCalls.find(tc => tc.id === event.id);
-          if (!startEvent) {
-            // This end corresponds to a start we haven't pushed yet — shouldn't happen
-            // but handle gracefully
+            // Find the tool name from the start event
+            const startEvent = pendingToolCalls.find(tc => tc.id === event.id);
+            if (!startEvent) {
+              // This end corresponds to a start we haven't pushed yet — shouldn't happen
+              // but handle gracefully
+            }
+            break;
           }
-          break;
+
+          case 'done':
+            break;
         }
 
-        case 'done':
-          break;
+        // On tool_use_start, record the pending call
+        if (event.type === 'tool_use_start') {
+          pendingToolCalls.push({ id: event.id, name: event.name, input: {} });
+        }
       }
-
-      // On tool_use_start, record the pending call
-      if (event.type === 'tool_use_start') {
-        pendingToolCalls.push({ id: event.id, name: event.name, input: {} });
+    } catch (err) {
+      // Stream interrupted (abort, network error, etc.)
+      if (config.abortSignal?.aborted) {
+        console.log(`[runner] Stream aborted at iteration ${iterations}. Returning partial result.`);
+        return {
+          text: textAccum || '',
+          messages: currentMessages,
+          toolCalls: allToolCalls,
+          iterations,
+          maxIterationsHit: false,
+          aborted: true,
+          temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined,
+        };
       }
+      throw err;
     }
 
     const streamElapsed = Date.now() - streamStartTime;
@@ -200,7 +264,7 @@ export async function runAgent(
     // If no tool calls, we're done
     if (pendingToolCalls.length === 0) {
       console.log(`[runner] Agent complete after ${iterations} iterations, ${allToolCalls.length} total tool calls`);
-      return { text: textAccum, messages: currentMessages, toolCalls: allToolCalls, iterations, maxIterationsHit: false, temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined };
+      return { text: textAccum, messages: currentMessages, toolCalls: allToolCalls, iterations, maxIterationsHit: false, aborted: false, temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined };
     }
 
     // Append assistant message with tool calls
@@ -258,7 +322,16 @@ export async function runAgent(
     // Check abort after tool execution before next LLM call
     if (config.abortSignal?.aborted) {
       const reason = config.abortSignal.reason ?? 'aborted';
-      throw new Error(`Agent turn aborted: ${reason}`);
+      console.log(`[runner] Aborted after tool execution at iteration ${iterations}: ${reason}. Returning partial result.`);
+      return {
+        text: '',
+        messages: currentMessages,
+        toolCalls: allToolCalls,
+        iterations,
+        maxIterationsHit: false,
+        aborted: true,
+        temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined,
+      };
     }
 
     // Loop — send updated messages back to LLM
@@ -272,6 +345,7 @@ export async function runAgent(
     toolCalls: allToolCalls,
     iterations,
     maxIterationsHit: true,
+    aborted: false,
     temperatureHistory: temperatureHistory.length > 0 ? temperatureHistory : undefined,
   };
 }

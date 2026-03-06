@@ -2,13 +2,11 @@
 // Mach6 — CLI Entry Point
 // Sovereign AI agent framework · Artifact Virtual
 
-// Handle `mach6 init` before loading heavy imports
-const subcommand = process.argv[2];
-if (subcommand === 'init') {
-  const { runWizard } = await import('./cli/wizard.js');
-  await runWizard();
-  process.exit(0);
-}
+// Route CLI subcommands (init, start, stop, status, configure, install, logs, etc.)
+// Falls through to REPL if no recognized subcommand.
+import { routeCli } from './cli/cli.js';
+const handled = await routeCli();
+if (handled) process.exit(0);
 
 import * as readline from 'node:readline';
 import { loadConfig } from './config/config.js';
@@ -16,6 +14,8 @@ import { anthropicProvider } from './providers/anthropic.js';
 import { openaiProvider } from './providers/openai.js';
 import { githubCopilotProvider } from './providers/github-copilot.js';
 import { gladiusProvider } from './providers/gladius.js';
+import { groqProvider } from './providers/groq.js';
+import { ollamaProvider } from './providers/ollama.js';
 import type { Provider, ProviderConfig } from './providers/types.js';
 import { ToolRegistry } from './tools/registry.js';
 import { readTool } from './tools/builtin/read.js';
@@ -46,6 +46,8 @@ const providers = new Map<string, Provider>([
   ['openai', openaiProvider],
   ['github-copilot', githubCopilotProvider],
   ['gladius', gladiusProvider],
+  ['groq', groqProvider],
+  ['ollama', ollamaProvider],
 ]);
 
 // ─── Main ───

@@ -31,9 +31,14 @@ export interface Mach6Config {
     // openai provider exists as protocol layer (used by Copilot/Gladius) but not as direct config
     'github-copilot'?: { baseUrl?: string; timeoutMs?: number };
     gladius?: { baseUrl?: string; timeoutMs?: number };
+    groq?: { apiKey?: string; baseUrl?: string; model?: string; timeoutMs?: number };
+    ollama?: { baseUrl?: string; model?: string; timeoutMs?: number; contextWindow?: number };
+    [key: string]: Record<string, unknown> | undefined;
   };
   defaultProvider: string;
   defaultModel: string;
+  /** Ordered fallback provider chain — tried in sequence if primary fails */
+  fallbackProviders?: string[];
   maxTokens: number;
   temperature: number;
   maxIterations?: number;
