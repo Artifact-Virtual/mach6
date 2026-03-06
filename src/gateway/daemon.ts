@@ -16,6 +16,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+// @ts-ignore — no types for qrcode-terminal
+import qrcode from 'qrcode-terminal';
 // Use global process (don't import — it shadows signal handlers)
 import {
   palette, gradient, versionBanner, kvLine, ok, warn, info,
@@ -418,7 +420,10 @@ export class Mach6Gateway {
             phoneNumber: channels.whatsapp.phoneNumber,
             autoRead: channels.whatsapp.autoRead ?? true,
             onQR: (qr: string) => {
-              console.log(`\n  ${palette.gold}📱 WhatsApp QR Code — scan to link:${palette.reset}\n${qr}\n`);
+              console.log(`\n  ${palette.gold}📱 WhatsApp QR Code — scan to link:${palette.reset}\n`);
+              qrcode.generate(qr, { small: true }, (rendered: string) => {
+                console.log(rendered);
+              });
             },
           },
           policy,
