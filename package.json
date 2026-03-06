@@ -12,7 +12,8 @@
     "web",
     "README.md",
     "LICENSE",
-    "mach6.example.json"
+    "mach6.example.json",
+    ".env.example"
   ],
   "scripts": {
     "build": "tsc",
