@@ -511,7 +511,7 @@ export class Mach6Gateway {
 
         // Sandbox context — HTTP API users get 'standard' tier (not admin)
         const ownerIds = this.gatewayConfig.ownerIds ?? [];
-        const isOwner = request.senderId ? ownerIds.includes(request.senderId) : false;
+        const isOwner = request.senderId ? (ownerIds.includes('*') || ownerIds.includes(request.senderId)) : false;
         const sandboxCtx: SessionContext = {
           sessionId,
           adapterId: 'http-api',
@@ -771,7 +771,7 @@ export class Mach6Gateway {
 
     // Build sandbox context for this session
     const ownerIds = this.gatewayConfig.ownerIds ?? [];
-    const isOwner = ownerIds.includes(envelope.source.senderId);
+    const isOwner = ownerIds.includes('*') || ownerIds.includes(envelope.source.senderId);
     const chatType = (envelope.source.chatType === 'channel' || envelope.source.chatType === 'thread' || envelope.source.chatType === 'group' || envelope.source.chatId.includes('@g.') || envelope.metadata.guildId) ? 'group' as const : 'direct' as const;
     const sandboxCtx: SessionContext = {
       sessionId,
