@@ -24,6 +24,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+const __wa_dirname = path.dirname(fileURLToPath(import.meta.url));
 import { BaseAdapter } from '../adapter.js';
 import { formatForChannel } from '../formatter.js';
 import { logInbound, logOutbound, logReaction } from '../message-logger.js';
@@ -146,20 +148,41 @@ export class WhatsAppAdapter extends BaseAdapter {
           console.log(`  QR Data: ${qr}\n`);
         }
         
-        // Save QR as scannable HTML file
+        // Save QR as scannable HTML file (self-contained — no CDN dependency)
         const qrHtmlPath = path.join(process.cwd(), 'whatsapp-qr.html');
         const qrEscaped = qr.replace(/'/g, "\\'").replace(/\\/g, '\\\\');
-        const qrHtml = `<!DOCTYPE html>
+        
+        // Load qrcodejs inline (try assets/ relative to module, then node_modules)
+        let qrJsInline = '';
+        const qrJsPaths = [
+          path.join(__wa_dirname, '..', '..', 'assets', 'qrcode.min.js'),
+          path.join(__wa_dirname, '..', '..', '..', 'assets', 'qrcode.min.js'),
+          path.join(process.cwd(), 'assets', 'qrcode.min.js'),
+        ];
+        for (const p of qrJsPaths) {
+          try { qrJsInline = fs.readFileSync(p, 'utf-8'); break; } catch { /* next */ }
+        }
+        
+        const qrHtml = qrJsInline
+          ? `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Mach6 — WhatsApp QR</title>
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"><\/script>
 <style>body{background:#0a0a0f;color:#fff;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0}
 h1{background:linear-gradient(135deg,#8a2be2,#00e5ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:2em}
-p{color:#9e9eaa;margin:8px 0}#qr{margin:24px;padding:16px;background:#fff;border-radius:12px}
-.refresh{color:#ffc125;font-size:0.9em;margin-top:16px}</style></head>
+p{color:#9e9eaa;margin:8px 0}#qr{margin:24px;padding:16px;background:#fff;border-radius:12px;display:inline-block}
+.refresh{color:#ffc125;font-size:0.9em;margin-top:16px}</style>
+<script>${qrJsInline}<\/script></head>
 <body><h1>⚡ Mach6</h1><p>Scan this QR code with WhatsApp to link your agent</p>
-<canvas id="qr"></canvas>
+<div id="qr"></div>
 <p class="refresh">QR refreshes every ~30s. Reload this page if expired.</p>
-<script>QRCode.toCanvas(document.getElementById('qr'),'${qrEscaped}',{width:300,margin:2},function(e){if(e)document.getElementById('qr').outerHTML='<p style="color:red">QR render failed: '+e.message+'</p>'});<\/script>
+<script>new QRCode(document.getElementById("qr"),{text:"${qrEscaped}",width:300,height:300,colorDark:"#000000",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.L});<\/script>
+</body></html>`
+          : `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Mach6 — WhatsApp QR</title>
+<style>body{background:#0a0a0f;color:#fff;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:40px}
+h1{color:#ffc125;font-size:2em}pre{background:#1a1a2e;padding:20px;border-radius:8px;word-break:break-all;max-width:600px;color:#00e5ff}</style></head>
+<body><h1>⚡ Mach6 — WhatsApp QR</h1>
+<p style="color:#9e9eaa">Copy this text into any QR code generator (e.g. qr-code-generator.com):</p>
+<pre>${qrEscaped}</pre>
 </body></html>`;
         try {
           fs.writeFileSync(qrHtmlPath, qrHtml);
