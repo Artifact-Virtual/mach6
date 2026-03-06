@@ -57,14 +57,20 @@ function convertMessages(messages: Message[]): { contents: unknown[]; systemInst
       if (text.trim()) {
         parts.push({ text });
       }
-      // Add function calls
+      // Add function calls — preserve thoughtSignature if present (REQUIRED by Gemini)
       for (const tc of msg.tool_calls) {
-        parts.push({
+        const fcPart: Record<string, unknown> = {
           functionCall: {
             name: tc.name,
             args: tc.input,
           },
-        });
+        };
+        // Gemini requires thoughtSignature to be sent back on subsequent turns
+        // when thinking is enabled. Missing it causes 400 INVALID_ARGUMENT.
+        if (tc.extra?.thoughtSignature) {
+          fcPart.thoughtSignature = tc.extra.thoughtSignature;
+        }
+        parts.push(fcPart);
       }
       contents.push({ role: 'model', parts });
       continue;
@@ -220,7 +226,14 @@ async function* streamGemini(
           const name = fc.name as string;
           const args = fc.args as Record<string, unknown> ?? {};
 
-          yield { type: 'tool_use_start', id, name };
+          // Preserve thoughtSignature — Gemini REQUIRES it in subsequent turns
+          // when thinking is enabled. Without it: 400 INVALID_ARGUMENT.
+          const extra: Record<string, unknown> = {};
+          if (part.thoughtSignature) {
+            extra.thoughtSignature = part.thoughtSignature;
+          }
+
+          yield { type: 'tool_use_start', id, name, extra: Object.keys(extra).length > 0 ? extra : undefined };
           yield { type: 'tool_use_delta', id, input: JSON.stringify(args) };
           yield { type: 'tool_use_end', id };
         }
