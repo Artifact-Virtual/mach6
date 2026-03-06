@@ -61,6 +61,7 @@ const PROVIDERS = [
   { id: 'openai', name: 'OpenAI', detail: 'GPT-4o / o3', defaultModel: 'gpt-4o', needsKey: true, icon: '◎' },
   { id: 'ollama', name: 'Ollama', detail: 'local models (llama, qwen, etc.)', defaultModel: 'qwen3:4b', needsKey: false, icon: '◆' },
   { id: 'groq', name: 'Groq', detail: 'fast inference', defaultModel: 'llama-3.3-70b-versatile', needsKey: true, icon: '◊' },
+  { id: 'xai', name: 'xAI (Grok)', detail: 'Grok 3 — reasoning + speed', defaultModel: 'grok-3-fast', needsKey: true, icon: '✦' },
   { id: 'gladius', name: 'Gladius', detail: 'Artifact Virtual kernel', defaultModel: 'gladius-125m', needsKey: false, icon: '◇' },
 ];
 
@@ -94,6 +95,12 @@ const MODELS_BY_PROVIDER: Record<string, { id: string; name: string }[]> = {
     { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B' },
     { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant' },
     { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
+  ],
+  'xai': [
+    { id: 'grok-3', name: 'Grok 3 (strongest reasoning)' },
+    { id: 'grok-3-fast', name: 'Grok 3 Fast (balanced)' },
+    { id: 'grok-3-mini', name: 'Grok 3 Mini (lightweight)' },
+    { id: 'grok-3-mini-fast', name: 'Grok 3 Mini Fast (fastest)' },
   ],
 };
 

@@ -16,6 +16,7 @@ import { githubCopilotProvider } from './providers/github-copilot.js';
 import { gladiusProvider } from './providers/gladius.js';
 import { groqProvider } from './providers/groq.js';
 import { ollamaProvider } from './providers/ollama.js';
+import { xaiProvider } from './providers/xai.js';
 import type { Provider, ProviderConfig } from './providers/types.js';
 import { ToolRegistry } from './tools/registry.js';
 import { readTool } from './tools/builtin/read.js';
@@ -48,6 +49,7 @@ const providers = new Map<string, Provider>([
   ['gladius', gladiusProvider],
   ['groq', groqProvider],
   ['ollama', ollamaProvider],
+  ['xai', xaiProvider],
 ]);
 
 // ─── Main ───
