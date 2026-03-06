@@ -40,7 +40,7 @@ import {
 import { ttsTool } from '../tools/builtin/tts.js';
 import { webFetchTool } from '../tools/builtin/web-fetch.js';
 import { memorySearchTool } from '../tools/builtin/memory.js';
-import { combRecallTool, combStageTool } from '../tools/builtin/comb.js';
+import { combRecallTool, combStageTool, getNativeCombStore } from '../tools/builtin/comb.js';
 import { createSpawnTool, createSubAgentStatusTool } from '../tools/builtin/spawn.js';
 import { SubAgentManager } from '../sessions/sub-agent.js';
 import { createMessageTool, createTypingTool, createPresenceTool, createDeleteMessageTool, createMarkReadTool } from '../tools/builtin/message.js';
@@ -1136,19 +1136,17 @@ export class Mach6Gateway {
     const ws = this.config.workspace;
     const python = path.join(ws, '.hektor-env', 'bin', 'python3');
     const flushScript = path.join(ws, '.ava-memory', 'flush.py');
-
-    // Check if COMB infrastructure exists for this workspace
-    if (!fs.existsSync(python) || !fs.existsSync(flushScript)) {
-      console.log(`${palette.dim}  [comb]${palette.reset} No COMB infrastructure at ${ws} — skipping auto-flush`);
-      return;
-    }
+    const hasPythonComb = fs.existsSync(python) && fs.existsSync(flushScript);
 
     try {
       // Collect the last N non-system messages from all recent sessions
       const sessionSummaries = this.sessionManager.list();
-      const fragments: string[] = [];
       const now = Date.now();
       const RECENCY_WINDOW = 24 * 60 * 60 * 1000; // Only flush sessions active in last 24h
+      let flushedCount = 0;
+
+      // Use native COMB store (works universally — no Python needed)
+      const nativeStore = getNativeCombStore(ws);
 
       for (const summary of sessionSummaries) {
         if (now - summary.updatedAt > RECENCY_WINDOW) continue;
@@ -1156,51 +1154,47 @@ export class Mach6Gateway {
         const session = this.sessionManager.load(summary.id);
         if (!session || session.messages.length === 0) continue;
 
-        // Extract last N conversation messages (skip system prompts)
-        const convMessages = session.messages.filter(m => m.role !== 'system');
-        const tail = convMessages.slice(-tailMessages);
-
-        if (tail.length === 0) continue;
-
         const sessionLabel = summary.label ?? summary.id;
-        const lines: string[] = [`[Session: ${sessionLabel}]`];
 
-        for (const msg of tail) {
-          const role = msg.role === 'assistant' ? 'AVA' : msg.role === 'user' ? 'Human' : msg.role;
-          let content = typeof msg.content === 'string' 
-            ? msg.content 
-            : JSON.stringify(msg.content);
-          // Truncate very long messages (tool results, etc.)
-          if (content.length > 500) content = content.slice(0, 500) + '... [truncated]';
-          // Skip tool results — they're noise for context recovery
-          if (msg.role === 'tool') continue;
-          lines.push(`${role}: ${content}`);
+        if (hasPythonComb) {
+          // Python COMB path (richer: chain integrity, HEKTOR integration)
+          const convMessages = session.messages.filter((m: any) => m.role !== 'system' && m.role !== 'tool');
+          const tail = convMessages.slice(-tailMessages);
+          if (tail.length === 0) continue;
+
+          const lines: string[] = [`[Session: ${sessionLabel}]`];
+          for (const msg of tail) {
+            const role = msg.role === 'assistant' ? 'AVA' : msg.role === 'user' ? 'Human' : msg.role;
+            let content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+            if (content.length > 500) content = content.slice(0, 500) + '... [truncated]';
+            lines.push(`${role}: ${content}`);
+          }
+
+          try {
+            const timestamp = new Date().toISOString();
+            const combContent = `[Auto-flush at shutdown — ${timestamp}]\n${lines.join('\n')}`;
+            await execFileAsync(python, [flushScript, 'stage', combContent], {
+              encoding: 'utf-8', timeout: 10000, cwd: ws,
+            });
+            flushedCount++;
+          } catch (pyErr) {
+            // Python failed — fall through to native
+            nativeStore.flushMessages(sessionLabel, session.messages, tailMessages);
+            flushedCount++;
+          }
+        } else {
+          // Native COMB (universal — zero dependencies)
+          nativeStore.flushMessages(sessionLabel, session.messages, tailMessages);
+          flushedCount++;
         }
-
-        fragments.push(lines.join('\n'));
       }
 
-      if (fragments.length === 0) {
+      if (flushedCount > 0) {
+        const method = hasPythonComb ? 'Python COMB' : 'native COMB';
+        console.log(`${palette.dim}  [comb]${palette.reset} ${palette.green}Auto-flushed${palette.reset} ${flushedCount} session(s) → ${method}`);
+      } else {
         console.log(`${palette.dim}  [comb]${palette.reset} No recent sessions to flush`);
-        return;
       }
-
-      const timestamp = new Date().toISOString();
-      const combContent = [
-        `[Auto-flush at shutdown — ${timestamp}]`,
-        `Last ${tailMessages} messages from active sessions:`,
-        '',
-        ...fragments,
-      ].join('\n');
-
-      // Stage to COMB via flush.py
-      await execFileAsync(python, [flushScript, 'stage', combContent], {
-        encoding: 'utf-8',
-        timeout: 10000,
-        cwd: ws,
-      });
-
-      console.log(`${palette.dim}  [comb]${palette.reset} ${palette.green}Auto-flushed${palette.reset} ${fragments.length} session(s) → COMB`);
     } catch (err) {
       // Never let COMB flush failure block shutdown
       console.error(`${palette.dim}  [comb]${palette.reset} ${palette.red}Auto-flush failed${palette.reset}: ${err instanceof Error ? err.message : err}`);
