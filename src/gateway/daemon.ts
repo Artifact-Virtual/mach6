@@ -57,6 +57,7 @@ import type { Provider, ProviderConfig } from '../providers/types.js';
 import { anthropicProvider } from '../providers/anthropic.js';
 import { openaiProvider } from '../providers/openai.js';
 import { githubCopilotProvider } from '../providers/github-copilot.js';
+import { geminiProvider } from '../providers/gemini.js';
 import { gladiusProvider } from '../providers/gladius.js';
 import { groqProvider } from '../providers/groq.js';
 import { ollamaProvider } from '../providers/ollama.js';
@@ -117,6 +118,7 @@ const PROVIDERS = new Map<string, Provider>([
   ['anthropic', anthropicProvider],
   ['openai', openaiProvider],
   ['github-copilot', githubCopilotProvider],
+  ['gemini', geminiProvider],
   ['gladius', gladiusProvider],
   ['groq', groqProvider],
   ['ollama', ollamaProvider],
@@ -179,14 +181,19 @@ export class Mach6Gateway {
       }
     }
 
-    // Tools
+    // Tools (can be disabled via config: "tools": { "enabled": false })
     this.toolRegistry = new ToolRegistry();
-    for (const tool of [
-      readTool, writeTool, editTool, execTool, imageTool,
-      processStartTool, processPollTool, processKillTool, processListTool,
-      ttsTool, webFetchTool, memorySearchTool, combRecallTool, combStageTool,
-    ]) {
-      this.toolRegistry.register(tool);
+    const toolsEnabled = (this.gatewayConfig as any).tools?.enabled !== false;
+    if (toolsEnabled) {
+      for (const tool of [
+        readTool, writeTool, editTool, execTool, imageTool,
+        processStartTool, processPollTool, processKillTool, processListTool,
+        ttsTool, webFetchTool, memorySearchTool, combRecallTool, combStageTool,
+      ]) {
+        this.toolRegistry.register(tool);
+      }
+    } else {
+      console.log(`${palette.dim}  [gateway]${palette.reset} Tools ${palette.yellow}disabled${palette.reset} via config`);
     }
 
     // Heartbeat scheduler
@@ -218,11 +225,13 @@ export class Mach6Gateway {
     });
 
     // Register message tool (needs channelRegistry — must come after registry creation)
-    this.toolRegistry.register(createMessageTool(this.channelRegistry));
-    this.toolRegistry.register(createTypingTool(this.channelRegistry));
-    this.toolRegistry.register(createPresenceTool(this.channelRegistry));
-    this.toolRegistry.register(createDeleteMessageTool(this.channelRegistry));
-    this.toolRegistry.register(createMarkReadTool(this.channelRegistry));
+    if (toolsEnabled) {
+      this.toolRegistry.register(createMessageTool(this.channelRegistry));
+      this.toolRegistry.register(createTypingTool(this.channelRegistry));
+      this.toolRegistry.register(createPresenceTool(this.channelRegistry));
+      this.toolRegistry.register(createDeleteMessageTool(this.channelRegistry));
+      this.toolRegistry.register(createMarkReadTool(this.channelRegistry));
+    }
 
     // Sub-agent manager + spawn tools
     this.subAgentManager = new SubAgentManager(this.sessionManager);
@@ -234,10 +243,12 @@ export class Mach6Gateway {
       temperature: this.config.temperature,
       ...provCfg,
     };
-    this.toolRegistry.register(createSpawnTool(
-      this.subAgentManager, this.provider, spawnProvConfig, this.toolRegistry, this.config.workspace
-    ));
-    this.toolRegistry.register(createSubAgentStatusTool(this.subAgentManager));
+    if (toolsEnabled) {
+      this.toolRegistry.register(createSpawnTool(
+        this.subAgentManager, this.provider, spawnProvConfig, this.toolRegistry, this.config.workspace
+      ));
+      this.toolRegistry.register(createSubAgentStatusTool(this.subAgentManager));
+    }
 
     // Rebuild system prompt now that all tools are registered
     this.systemPrompt = buildSystemPrompt({
@@ -524,11 +535,13 @@ export class Mach6Gateway {
 
         // Provider config
         const providerCfg = (this.config.providers as Record<string, any>)[this.providerName] ?? {};
+        const thinkingCfg = (this.config as any).thinking;
         const provConfig = {
           model: this.model,
           maxTokens: this.config.maxTokens,
           temperature: this.config.temperature,
           systemPrompt: this.systemPrompt,
+          ...(thinkingCfg ? { thinking: thinkingCfg } : {}),
           ...providerCfg,
         };
 
@@ -857,11 +870,13 @@ export class Mach6Gateway {
 
       // Provider config
       const providerCfg = (this.config.providers as Record<string, any>)[this.providerName] ?? {};
+      const thinkingCfg = (this.config as any).thinking;
       const provConfig: ProviderConfig = {
         model: this.model,
         maxTokens: this.config.maxTokens,
         temperature: this.config.temperature,
         systemPrompt: this.systemPrompt,
+        ...(thinkingCfg ? { thinking: thinkingCfg } : {}),
         ...providerCfg,
       };
 
