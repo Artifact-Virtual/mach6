@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.5.0 — Blink, Pulse, COMB, 7 Providers, Agent Wizard (2026-03-06)
+
+### Features
+- **Blink** — seamless session continuation. Agent hits iteration budget → daemon spawns fresh turn on same session. User sees nothing. Up to 5 consecutive blinks with periodic checkpoints for crash recovery.
+- **Pulse** — adaptive iteration budget. Starts at 20 iterations. Expands to 100 when the agent needs it. Reverts when demand passes. Persists across restarts.
+- **Native COMB** — lossless session-to-session memory, pure Node.js, zero external dependencies. Automatic fallback if Python COMB exists. `comb_recall` and `comb_stage` built-in tools. Session auto-flush on shutdown.
+- **Groq provider** — free tier, 280-1000 tok/sec on LPU hardware. Auto-retry on rate limits with server-specified delays. **New default provider.**
+- **xAI (Grok) provider** — Grok 3, Grok 3 Fast, Grok 3 Mini, Grok 3 Mini Fast. OpenAI-compatible with rate limit handling.
+- **Ollama provider** — fully local, fully offline. No API key needed. Sovereign fallback.
+- **Agent creation wizard** — 6-step interactive setup generates `mach6.json`, `.env`, and identity files (SOUL.md, IDENTITY.md, USER.md, AGENTS.md, HEARTBEAT.md). Clean-room templates with zero bleed.
+- **Agent scaffold** — `scaffoldAgent()` function generates personalized identity files for new agents.
+- **dotenv auto-loading** — `.env` file automatically loaded at startup. No manual setup required.
+- **Cron budget manager** — jobs declare resource usage, scheduler enforces daily limits. Warns at 80%, blocks at 100%.
+- **Context monitor** — tracks token usage in real-time with progressive thresholds (70% warn, 80% compact, 90% emergency). Auto-compacts context before overflow. Emergency transcript flush to disk.
+- **Memory integrity** — validates HEKTOR index files at startup (size checks, test queries). Auto-rebuilds corrupt indices. Atomic file writes prevent corruption from interrupted writes.
+
+### Improvements
+- **Heartbeat scheduler** — activity-aware: scales frequency based on user activity (30min active, 2h idle, 6h sleeping). Quiet hours suppression.
+- **Boot sequence** — structured 5-step boot with per-step timeouts and degraded mode. Non-critical failures don't crash the daemon.
+- **Provider count:** 4 → 7 (added Groq, xAI, Ollama)
+- **Default provider:** `github-copilot` → `groq` (free, fastest, no CLI auth needed)
+- **Full documentation overhaul** — 37 docs across 8 sections, GitBook-compatible
+
+### Stats
+- 7 LLM providers (Groq, Anthropic, OpenAI, xAI, GitHub Copilot, Ollama, Gladius)
+- 18+ built-in tools (including `comb_recall`, `comb_stage`)
+- 2 channel adapters + HTTP API
+- 37 documentation files
+
+---
+
 ## v1.4.0 — MCP Server, Anti-Loop & Degradation Protection (2026-03-05)
 
 ### Features

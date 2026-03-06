@@ -9,7 +9,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 
-A persistent daemon that connects messaging platforms, LLM providers, and tool execution into a single agentic loop — with real-time interrupts, message coalescing, and sub-agent orchestration. No Docker. No Redis. No cloud dependencies. **Your machine, your data, your keys.**
+Sovereign AI agent framework — a persistent daemon that connects messaging platforms, LLM providers, and tool execution into a single agentic loop — with real-time interrupts, message coalescing, Blink continuation, and sub-agent orchestration. No Docker. No Redis. No cloud dependencies. **Your machine, your data, your keys.**
 
 [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Config](#-configuration) · [Providers](#-providers) · [Tools](#-tools) · [Web UI](#-web-ui)
 
@@ -113,6 +113,24 @@ background →  Typing indicators. Dropped under backpressure.
 ```
 
 Send "stop" while the agent is mid-thought → the agent stops. Immediately. Not after the current tool call. Not after the current paragraph. **Now.**
+
+### Seamless Continuation (Blink + Pulse)
+
+Most frameworks hard-cap iteration budgets. Hit the wall → session dies → context lost. Mach6 doesn't have walls.
+
+**Blink** detects when the agent approaches its budget, spawns a fresh turn on the same session, and carries the full conversation forward. The user sees one continuous interaction. Up to 5 consecutive blinks with periodic checkpoint saves.
+
+**Pulse** adapts the budget itself. Short conversations get 20 iterations (cheap). Complex tasks auto-expand to 100. When demand passes, it reverts. Cross-session state persistence means the budget carries across restarts.
+
+### Native Memory (COMB)
+
+Session-to-session memory, built into the engine. Zero external dependencies — no Python, no Redis, no database.
+
+- **`comb_stage`** — save critical context for the next session
+- **`comb_recall`** — retrieve it when the next session starts
+- **Auto-flush** — conversation tail is saved automatically on shutdown
+
+If a Python COMB stack exists (for enterprise deployments), the native version delegates to it transparently.
 
 ### Message Coalescing
 
@@ -438,16 +456,20 @@ mach6/
 
 ## 🔒 Hardening
 
-20 production pain points addressed:
+20+ production pain points addressed:
 
+- **Blink** — seamless iteration budget continuation (no hard walls)
+- **Pulse** — adaptive iteration budget (20 → 100 on demand, auto-reverts)
+- **Native COMB** — lossless session-to-session memory, zero dependencies
 - **Config validation** with human-readable diagnostics at boot
 - **Context monitor** with progressive warnings (70/80/90% thresholds)
 - **Priority message queue** — real messages never drop, only background signals shed under backpressure
 - **Tool policy engine** — scope available tools per session and security tier
 - **Provider diagnostics** — health checks and automatic failover
-- **Activity-aware heartbeat** — adapts frequency to system load
-- **Cron budget management** — prevents runaway scheduled tasks
+- **Activity-aware heartbeat** — adapts frequency to user activity state
+- **Cron budget management** — jobs declare resource budgets, scheduler enforces daily limits
 - **Boot sequence validation** — catch misconfigurations before they become incidents
+- **Memory index integrity** — validates HEKTOR indices at startup, auto-rebuilds if corrupt
 - **JID normalization** for WhatsApp Baileys v7 (device suffix stripping)
 - **Abort signal propagation** through agent runner → LLM stream → tool execution
 - **MCP bridge** for connecting external tool servers
@@ -461,12 +483,12 @@ mach6/
 
 | Metric | Value |
 |--------|-------|
-| Lines of TypeScript | ~13,800 |
-| Source files | 66 |
-| Built-in tools | 14+ |
+| Lines of TypeScript | ~15,000+ |
+| Source files | 70+ |
+| Built-in tools | 18+ |
 | LLM providers | 7 |
 | Channel adapters | 2 + HTTP API |
-| Documentation files | 28 |
+| Documentation files | 37 |
 | Cold boot to connected | ~2.3s |
 | External runtime deps | Node.js only |
 
@@ -500,6 +522,7 @@ All paths resolved via `os.tmpdir()` and `os.homedir()` — zero hardcoded Unix 
 | **Feb 28, 2026** | Cross-platform (Windows/Linux/macOS). CLI wizard. v1.0.0. |
 | **Mar 3, 2026** | Multi-bot coordination, ATM, sibling yield. v1.3.0. |
 | **Mar 5, 2026** | MCP server, anti-loop, degradation protection. v1.4.0. |
+| **Mar 6, 2026** | Blink, Pulse, COMB, 7 providers, agent wizard. v1.5.0. |
 
 ---
 

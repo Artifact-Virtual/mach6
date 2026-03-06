@@ -1,15 +1,20 @@
 # Providers Overview
 
-Mach6 supports multiple LLM providers through a unified `Provider` interface. Providers are hot-swappable mid-session — switch models without losing conversation context.
+Mach6 supports 7 LLM providers through a unified streaming interface. Providers are hot-swappable mid-session — switch models without losing conversation context.
 
 ## Supported Providers
 
-| Provider | Config Key | Auth Method | GPU Required |
-|----------|-----------|-------------|--------------|
-| [GitHub Copilot](github-copilot.md) | `github-copilot` | Auto-resolved from `gh` CLI | No |
-| [Anthropic](anthropic.md) | `anthropic` | `ANTHROPIC_API_KEY` env var | No |
-| [OpenAI](openai.md) | `openai` | `OPENAI_API_KEY` env var | No |
-| [Gladius](gladius.md) | `gladius` | Local HTTP endpoint | Optional |
+| Provider | Config Key | Auth Method | GPU Required | Speed |
+|----------|-----------|-------------|--------------|-------|
+| [Groq](groq.md) | `groq` | `GROQ_API_KEY` env var | No | ⚡ Fastest |
+| [Anthropic](anthropic.md) | `anthropic` | `ANTHROPIC_API_KEY` env var | No | Fast |
+| [OpenAI](openai.md) | `openai` | `OPENAI_API_KEY` env var | No | Fast |
+| [xAI (Grok)](xai.md) | `xai` | `XAI_API_KEY` env var | No | Fast |
+| [GitHub Copilot](github-copilot.md) | `github-copilot` | Auto-resolved from `gh` CLI | No | Moderate |
+| [Ollama](ollama.md) | `ollama` | None (local) | Optional | Varies |
+| [Gladius](gladius.md) | `gladius` | Local HTTP endpoint | Optional | Local |
+
+> **Default provider:** Groq — free tier, 280-1000 tok/sec, no credit card needed. [Get a key →](https://console.groq.com/keys)
 
 ## Configuration
 
@@ -18,13 +23,16 @@ Register providers in `mach6.json`:
 ```json
 {
   "providers": {
-    "github-copilot": {},
+    "groq": { "baseUrl": "https://api.groq.com/openai" },
     "anthropic": {},
     "openai": {},
+    "xai": {},
+    "ollama": { "baseUrl": "http://127.0.0.1:11434" },
+    "github-copilot": {},
     "gladius": { "baseUrl": "http://127.0.0.1:8741" }
   },
-  "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4-6"
+  "defaultProvider": "groq",
+  "defaultModel": "llama-3.3-70b-versatile"
 }
 ```
 
@@ -43,34 +51,30 @@ The session's conversation history carries over. The new provider picks up where
 
 ## Provider Interface
 
-All providers implement the same interface:
+All providers implement the same streaming interface:
 
 ```typescript
 interface Provider {
-  chat(
+  name: string;
+  stream(
     messages: Message[],
+    tools: ToolDef[],
     config: ProviderConfig,
-    onEvent?: (event: StreamEvent) => void,
-  ): Promise<ProviderResponse>;
+  ): AsyncIterable<StreamEvent>;
 }
 ```
 
-This makes adding new providers straightforward — implement `chat()` and register it.
-
-## Diagnostics
-
-Mach6 runs provider health checks at boot:
-
-- Token validation
-- Endpoint reachability
-- Model availability
-
-Failed providers log warnings but don't prevent startup. The gateway enters degraded mode and falls back to the next available provider.
+Groq, xAI, and Ollama are built on the OpenAI-compatible adapter — they use the same streaming protocol with provider-specific base URLs and authentication.
 
 ## Retry Logic
 
-All providers include automatic retry with exponential backoff:
+All OpenAI-compatible providers (Groq, xAI, Ollama, OpenAI) include automatic retry:
 
-- **Rate limits (429)** — respects `Retry-After` header
-- **Server errors (500–503)** — retries up to 3 times
-- **Timeouts** — configurable per-provider via `timeoutMs`
+- **Rate limits (429)** — parses server-specified retry delay, retries up to 3 times
+- **Buffer** — adds 500ms to the server-specified delay to avoid hitting the limit again immediately
+- **Fallback delay** — 10-15 seconds if the server doesn't specify a retry window
+- **Non-429 errors** — thrown immediately, no retry
+
+## Diagnostics
+
+Mach6 validates provider configuration at boot. Missing API keys, unreachable endpoints, and invalid configurations are caught during the [boot sequence](../core/boot-sequence.md) — not at runtime. Failed providers log warnings but don't prevent startup if they aren't the default.

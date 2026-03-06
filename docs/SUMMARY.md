@@ -6,6 +6,7 @@
 
 * [Installation](getting-started/installation.md)
 * [Quick Start](getting-started/quick-start.md)
+* [Setup Wizard](getting-started/wizard.md)
 * [Configuration](getting-started/configuration.md)
 
 ## Core Concepts
@@ -14,6 +15,11 @@
 * [Message Bus](core/message-bus.md)
 * [Agent Runner](core/agent-runner.md)
 * [Sessions](core/sessions.md)
+* [Blink — Seamless Continuation](core/blink.md)
+* [Pulse — Adaptive Budget](core/pulse.md)
+* [COMB — Memory Persistence](core/comb.md)
+* [Heartbeat Scheduling](core/heartbeat.md)
+* [Boot Sequence](core/boot-sequence.md)
 
 ## Channels
 
@@ -24,9 +30,12 @@
 ## Providers
 
 * [Overview](providers/overview.md)
-* [GitHub Copilot](providers/github-copilot.md)
+* [Groq](providers/groq.md)
 * [Anthropic](providers/anthropic.md)
 * [OpenAI](providers/openai.md)
+* [xAI (Grok)](providers/xai.md)
+* [GitHub Copilot](providers/github-copilot.md)
+* [Ollama](providers/ollama.md)
 * [Gladius](providers/gladius.md)
 
 ## Tools

@@ -7,12 +7,20 @@ node dist/index.js --config=mach6.json
 ```
 
 ```
-Mach6 v1.3.0 | github-copilot/claude-opus-4-6 | session: default
+Mach6 v1.5.0 | groq/llama-3.3-70b-versatile | session: default
 Tools (18): read, write, edit, exec, image, web_fetch, tts, ...
 Type /help for commands
 
 ❯ _
 ```
+
+## Setup Wizard
+
+```bash
+npx mach6 init
+```
+
+Interactive 6-step wizard that generates `mach6.json`, `.env`, and optionally agent identity files (SOUL.md, IDENTITY.md, USER.md, AGENTS.md, HEARTBEAT.md). See [Wizard docs](../getting-started/wizard.md) for details.
 
 ## One-Shot Mode
 
@@ -22,7 +30,7 @@ node dist/index.js "Summarize the README in this directory"
 
 Runs a single turn and exits. Useful for scripting and CI/CD.
 
-## Commands
+## Session Commands
 
 | Command | Description |
 |---------|-------------|

@@ -7,8 +7,8 @@ Mach6 uses two files for configuration: `mach6.json` for agent settings and `.en
 ```jsonc
 {
   // LLM Settings
-  "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4-6",
+  "defaultProvider": "groq",
+  "defaultModel": "llama-3.3-70b-versatile",
   "maxTokens": 8192,
   "maxIterations": 50,
   "temperature": 0.3,
@@ -18,11 +18,14 @@ Mach6 uses two files for configuration: `mach6.json` for agent settings and `.en
   "workspace": "/home/you/workspace",
   "sessionsDir": ".sessions",
 
-  // Provider configuration
+  // Provider configuration — all 7 providers
   "providers": {
-    "github-copilot": {},
+    "groq": { "baseUrl": "https://api.groq.com/openai" },
     "anthropic": {},
     "openai": {},
+    "xai": {},
+    "ollama": { "baseUrl": "http://127.0.0.1:11434" },
+    "github-copilot": {},
     "gladius": { "baseUrl": "http://127.0.0.1:8741" }
   },
 
@@ -33,8 +36,8 @@ Mach6 uses two files for configuration: `mach6.json` for agent settings and `.en
   ],
 
   // Channel configuration (see Channels section for details)
-  "discord": { ... },
-  "whatsapp": { ... },
+  "discord": { "enabled": true, "..." : "..." },
+  "whatsapp": { "enabled": true, "..." : "..." },
 
   // HTTP API port
   "apiPort": 3006
@@ -54,17 +57,21 @@ All string values in `mach6.json` support `${ENV_VAR}` syntax:
 }
 ```
 
-Variables are resolved from `process.env` at load time.
+Variables are resolved from `process.env` at load time. The `.env` file is auto-loaded by the built-in dotenv loader.
 
 ## .env
 
 ```bash
 # LLM Providers
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
+GROQ_API_KEY=gsk_...           # https://console.groq.com/keys (free tier)
+ANTHROPIC_API_KEY=sk-ant-...   # https://console.anthropic.com/
+OPENAI_API_KEY=sk-...          # https://platform.openai.com/api-keys
+XAI_API_KEY=xai-...            # https://console.x.ai/
 
 # GitHub Copilot — usually automatic via `gh auth login`
 # COPILOT_GITHUB_TOKEN=
+
+# Ollama — no key needed, just run `ollama serve`
 
 # Discord
 DISCORD_BOT_TOKEN=
@@ -77,18 +84,31 @@ MACH6_API_KEY=
 MACH6_PORT=3006
 ```
 
+> Run `npx mach6 init` to generate both files interactively. See [Wizard](wizard.md).
+
 ## Key Settings
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `defaultProvider` | string | `"github-copilot"` | Active LLM provider |
-| `defaultModel` | string | `"claude-sonnet-4"` | Active model |
+| `defaultProvider` | string | `"groq"` | Active LLM provider |
+| `defaultModel` | string | `"llama-3.3-70b-versatile"` | Active model |
 | `maxTokens` | number | `8192` | Max tokens per response |
 | `maxIterations` | number | `50` | Max tool-call loops per turn |
-| `temperature` | number | `0.7` | Response temperature (0.0–1.2) |
+| `temperature` | number | `0.3` | Response temperature (0.0–1.2) |
 | `workspace` | string | `cwd()` | Agent's file system root |
 | `sessionsDir` | string | `".sessions"` | Session persistence directory |
 | `apiPort` | number | `3006` | HTTP API and Web UI port |
+
+## Provider Configuration
+
+Each provider can be configured with:
+
+| Option | Description |
+|--------|-------------|
+| `apiKey` | Override env var (not recommended — use `.env`) |
+| `baseUrl` | Custom endpoint URL |
+
+See [Providers Overview](../providers/overview.md) for all 7 providers and their specific options.
 
 ## Channel Policies
 
@@ -133,4 +153,4 @@ kill -USR1 $(pgrep -f "gateway/daemon.js")
 
 ## Validation
 
-Mach6 validates configuration at boot with human-readable diagnostics. Missing required fields, invalid types, and unreachable providers are caught before the agent starts — not at runtime.
+Mach6 validates configuration at [boot](../core/boot-sequence.md) with human-readable diagnostics. Missing required fields, invalid types, and unreachable providers are caught before the agent starts — not at runtime.

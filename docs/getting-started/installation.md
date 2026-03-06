@@ -3,8 +3,14 @@
 ## Requirements
 
 - **Node.js 20+** — [Download](https://nodejs.org/)
-- **npm** or **yarn**
-- **Git** (for cloning)
+- **npm** (ships with Node.js)
+- **Git** (for cloning from source)
+
+## From npm
+
+```bash
+npm install -g mach6-core
+```
 
 ## From Source
 
@@ -15,17 +21,27 @@ npm install
 npm run build
 ```
 
-## From npm
-
-```bash
-npm install -g mach6-core
-```
-
 ## Verify
 
 ```bash
-node dist/index.js --version
+npx mach6 --version
 ```
+
+## What's Included
+
+The package ships with:
+
+- **`.env.example`** — template for all environment variables (API keys, tokens)
+- **`mach6.example.json`** — template for agent configuration
+- **`mach6-gateway.service`** — systemd unit file for Linux deployments
+- **`mach6.sh` / `mach6.ps1`** — start scripts for Linux/macOS and Windows
+
+Environment variables are auto-loaded from `.env` via the built-in dotenv loader — no manual `source` or `dotenv` package needed.
+
+## Next Steps
+
+1. Run the [setup wizard](wizard.md): `npx mach6 init`
+2. Follow the [Quick Start](quick-start.md)
 
 ## Platform Support
 
