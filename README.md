@@ -2,7 +2,7 @@
 
 # ⚡ Mach6
 
-**Build AI agents that actually work. Single process. Any machine.**
+**Build capable AI agents. Single process. Any machine.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![npm](https://img.shields.io/badge/npm-mach6--core-red.svg)](https://www.npmjs.com/package/mach6-core)
