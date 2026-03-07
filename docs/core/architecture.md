@@ -66,7 +66,7 @@ No microservices. No message queues. No container orchestration. One `node` proc
 ### Messaging-First
 Channels aren't bolted on — they're the entry point. The bus, router, and priority system exist because real-time messaging demands them. Request-response is a special case, not the default.
 
-### Sovereign
+### Local-First
 No cloud dependencies at runtime. Mach6 runs on your hardware with your keys. Provider failover means you can fall back to a local LLM (Gladius) if cloud providers are unavailable.
 
 ### Platform-Native

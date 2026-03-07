@@ -222,7 +222,7 @@ export function thickDivider(width = 56): string {
 // ── Tagline ─────────────────────────────────────────────────────
 
 export function tagline(): string {
-  return subHeader('sovereign AI agent framework · artifact virtual');
+  return subHeader('AI agent framework · artifact virtual');
 }
 
 // ── Version Banner (for boot/startup) ───────────────────────────
@@ -233,7 +233,7 @@ export function versionBanner(version: string): string {
     '',
     banner(),
     '',
-    `  ${palette.bold}${gradient(ver, [255, 193, 37], [255, 160, 0])}${palette.reset}  ${palette.dim_attr}${palette.silver}· sovereign AI agent framework${palette.reset}`,
+    `  ${palette.bold}${gradient(ver, [255, 193, 37], [255, 160, 0])}${palette.reset}  ${palette.dim_attr}${palette.silver}· AI agent framework${palette.reset}`,
     `  ${palette.dim_attr}${palette.dim}artifact virtual · artifactvirtual.com${palette.reset}`,
     '',
     thickDivider(),

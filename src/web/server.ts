@@ -253,7 +253,7 @@ async function streamChat(
 function generateResponse(input: string): string {
   const responses = [
     `I understand you're asking about **${input.split(' ').slice(0, 3).join(' ')}**. Let me help with that.\n\nHere's what I can tell you:\n\n1. The system is running smoothly\n2. All components are operational\n3. Memory usage is within normal parameters\n\n\`\`\`typescript\n// Example code block\nconst status = await checkSystem();\nconsole.log(status);\n\`\`\`\n\nLet me know if you need anything else.`,
-    `Great question! Here's a detailed breakdown:\n\n**Key Points:**\n- Mach6 is running in sovereign mode\n- All providers are configured\n- Zero external dependencies\n\n> "The best code is no code at all." — Someone wise\n\nWould you like me to elaborate on any of these points?`,
+    `Great question! Here's a detailed breakdown:\n\n**Key Points:**\n- Mach6 is running in local mode\n- All providers are configured\n- Zero external dependencies\n\n> "The best code is no code at all." — Someone wise\n\nWould you like me to elaborate on any of these points?`,
     `Processing your request...\n\nI've analyzed the situation and here's my assessment:\n\n### Summary\nEverything looks good. The architecture is clean, the performance is solid, and the codebase is maintainable.\n\n### Details\n- **Latency:** < 100ms p99\n- **Memory:** 45MB RSS\n- **Uptime:** 99.97%\n\n\`\`\`json\n{\n  "status": "healthy",\n  "version": "0.1.0",\n  "engine": "mach6"\n}\n\`\`\``,
   ];
   return responses[Math.floor(Math.random() * responses.length)];

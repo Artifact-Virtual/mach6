@@ -1,6 +1,6 @@
 # Gladius Provider
 
-Gladius is Artifact Virtual's local AI kernel. It provides a sovereign inference endpoint — no cloud, no API keys, your hardware.
+Gladius is Artifact Virtual's local AI kernel. It provides a fully local inference endpoint — no cloud, no API keys, your hardware.
 
 ## Setup
 
@@ -25,7 +25,7 @@ Start the Gladius server before launching Mach6. The provider communicates via O
 
 ## Use Cases
 
-- **Sovereign operation** — no internet required, full offline capability
+- **Local operation** — no internet required, full offline capability
 - **Provider failover** — fall back to Gladius when cloud providers are unavailable
 - **Privacy-sensitive workloads** — data never leaves your machine
 - **Development** — test agent behavior without consuming cloud API credits

@@ -2,14 +2,18 @@
 
 # ⚡ Mach6
 
-**AI agent framework. Single process. Any machine.**
+**Build AI agents that actually work. Single process. Any machine.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![npm](https://img.shields.io/badge/npm-mach6--core-red.svg)](https://www.npmjs.com/package/mach6-core)
 [![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-green.svg)](https://nodejs.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
+[![v1.6.0](https://img.shields.io/badge/version-1.6.0-orange.svg)](https://github.com/Artifact-Virtual/mach6/releases/tag/v1.6.0)
 
-Sovereign AI agent framework — a persistent daemon that connects messaging platforms, LLM providers, and tool execution into a single agentic loop — with real-time interrupts, message coalescing, Blink continuation, and sub-agent orchestration. No Docker. No Redis. No cloud dependencies. **Your machine, your data, your keys.**
+A persistent daemon that connects messaging platforms, LLM providers, and tool execution into a single agentic loop. Real-time interrupts. Seamless continuation. Session-to-session memory. No Docker. No Redis. No cloud dependencies.
+
+**Your machine. Your data. Your keys.**
 
 [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Config](#-configuration) · [Providers](#-providers) · [Tools](#-tools) · [Web UI](#-web-ui)
 
@@ -20,22 +24,28 @@ Sovereign AI agent framework — a persistent daemon that connects messaging pla
 ## 🚀 Quick Start
 
 ```bash
-# Clone & build
-git clone https://github.com/Artifact-Virtual/mach6.git
-cd mach6
-npm install && npm run build
+# Install
+npm install -g mach6-core
 
 # Interactive setup — generates mach6.json + .env
-npx mach6 init
+mach6 init
 
 # Start the daemon
+mach6 start
+```
+
+Or from source:
+
+```bash
+git clone https://github.com/Artifact-Virtual/mach6.git
+cd mach6 && npm install && npm run build
 node dist/gateway/daemon.js --config=mach6.json
 ```
 
-> **Windows (PowerShell):** Same commands — Mach6 is fully cross-platform. Use `.\mach6.ps1` or `node dist/gateway/daemon.js --config=mach6.json`.
+> **Windows:** Fully supported. Use `.\mach6.ps1` or `node dist/gateway/daemon.js --config=mach6.json`.
 
 <details>
-<summary><strong>Manual setup (without wizard)</strong></summary>
+<summary><strong>Manual setup (skip the wizard)</strong></summary>
 
 ```bash
 cp mach6.example.json mach6.json
@@ -49,49 +59,23 @@ cp .env.example .env
 
 ## 🏗 Architecture
 
-```mermaid
-graph LR
-    subgraph Channels
-        D[Discord]
-        W[WhatsApp]
-        H[HTTP API]
-    end
-
-    subgraph Router
-        R[Policy\nDedup\nPriority]
-    end
-
-    subgraph Bus[Message Bus]
-        Q[Priority Queue\nCoalescing\nInterrupts\nBackpressure]
-    end
-
-    subgraph Agent
-        A[Runner\nTools\nAbort\nIterate]
-    end
-
-    subgraph Provider
-        P[LLM Provider\nHot-swappable]
-    end
-
-    UI[Web UI :3006] -->|SSE| Q
-
-    D --> R
-    W --> R
-    H --> R
-    R --> Q
-    Q --> A
-    A --> P
-    P --> LLM((LLM))
+```
+Channels → Router → Message Bus → Agent Runner → LLM Provider
+  ↑                      ↑
+Discord              Priority Queue
+WhatsApp             Coalescing
+HTTP API             Interrupts
+                     Backpressure
 ```
 
 | Layer | What it does |
 |-------|-------------|
-| **Channels** | Discord (discord.js), WhatsApp (Baileys v7). Adapter pattern — add any platform. |
-| **Router** | Policy enforcement, JID normalization, deduplication, interrupt detection, priority. |
+| **Channels** | Discord (discord.js), WhatsApp (Baileys v7), HTTP API. Adapter pattern — add any platform. |
+| **Router** | Policy enforcement, JID normalization, deduplication, interrupt detection, priority classification. |
 | **Message Bus** | Priority queue with interrupt bypass, message coalescing, backpressure management. |
 | **Agent Runner** | Agentic loop — tool calling, context management, abort signals, iteration limits. |
-| **Providers** | Groq, Anthropic, OpenAI, xAI (Grok), GitHub Copilot, Ollama, Gladius. Hot-swappable mid-session. |
-| **Tools** | 18 built-in. File I/O, shell, browser, TTS, memory, process management, messaging. |
+| **Providers** | Groq, Anthropic, OpenAI, xAI (Grok), GitHub Copilot, Ollama, Gemini, Gladius. Hot-swappable mid-session. |
+| **Tools** | 18+ built-in. File I/O, shell, browser, TTS, memory, process management, messaging. |
 | **Sessions** | Persistent, labeled, TTL-aware. Sub-agent spawning up to depth 3. |
 
 ---
@@ -100,9 +84,9 @@ graph LR
 
 ### Real-Time Interrupts
 
-Most agent frameworks are request-response: you send a message, you wait, you get a reply. If the agent is mid-turn, your new message queues silently. You can't stop it. You can't redirect it.
+Most agent frameworks are request-response. You send a message, you wait, you get a reply. Your new message queues silently while the agent is mid-turn. You can't stop it. You can't redirect it.
 
-**Mach6 doesn't work that way.** Every message is priority-classified in real-time:
+Mach6 doesn't work that way. Every message is priority-classified in real time:
 
 ```
 interrupt  →  Bypasses queue. Cancels active turn immediately.
@@ -112,25 +96,25 @@ low        →  Reactions, group mentions. Queued politely.
 background →  Typing indicators. Dropped under backpressure.
 ```
 
-Send "stop" while the agent is mid-thought → the agent stops. Immediately. Not after the current tool call. Not after the current paragraph. **Now.**
+Say "stop" while the agent is mid-thought — it stops. Not after the current tool call. Not after the current paragraph. **Now.**
 
 ### Seamless Continuation (Blink + Pulse)
 
-Most frameworks hard-cap iteration budgets. Hit the wall → session dies → context lost. Mach6 doesn't have walls.
+Most frameworks hard-cap iteration budgets. Hit the wall → session dies → context lost.
 
-**Blink** detects when the agent approaches its budget, spawns a fresh turn on the same session, and carries the full conversation forward. The user sees one continuous interaction. Up to 5 consecutive blinks with periodic checkpoint saves.
+**Blink** detects when the agent approaches its budget, spawns a fresh turn on the same session, and carries the full conversation forward. The user sees one continuous interaction. Up to 5 consecutive blinks per task, with periodic checkpoint saves.
 
-**Pulse** adapts the budget itself. Short conversations get 20 iterations (cheap). Complex tasks auto-expand to 100. When demand passes, it reverts. Cross-session state persistence means the budget carries across restarts.
+**Pulse** adapts the budget itself. Short conversations use 20 iterations. Complex tasks auto-expand to 100. When demand passes, it reverts. Budget carries across restarts.
 
-### Native Memory (COMB)
+### Session-to-Session Memory (COMB)
 
-Session-to-session memory, built into the engine. Zero external dependencies — no Python, no Redis, no database.
+Built into the engine. Zero external dependencies — no Python, no Redis, no database.
 
 - **`comb_stage`** — save critical context for the next session
 - **`comb_recall`** — retrieve it when the next session starts
-- **Auto-flush** — conversation tail is saved automatically on shutdown
+- **Auto-flush** — conversation tail saves automatically on shutdown
 
-If a Python COMB stack exists (for enterprise deployments), the native version delegates to it transparently.
+If a Python COMB stack exists (enterprise deployments), the native version delegates to it transparently.
 
 ### Message Coalescing
 
@@ -139,14 +123,14 @@ Three messages in rapid succession? Mach6 buffers and merges them:
 ```
 "hey"              → buffered
 "can you"          → buffered
-"check the logs"   → 2s timer expires → merged into one envelope
+"check the logs"   → 2s timer expires → one coherent envelope
 ```
 
-One coherent request, one turn, no wasted tokens.
+One request, one turn, no wasted tokens.
 
-### Single Process, Full Stack
+### One Process, Full Stack
 
-One Node.js daemon runs everything — channels, routing, sessions, tools, providers, web UI. No Docker. No Redis. No Kubernetes. No microservices. The same binary runs on a $200 VPS or a bare-metal server. CPU-only, no GPU required. If it runs Node.js, it runs Mach6.
+One Node.js daemon runs everything — channels, routing, sessions, tools, providers, web UI. No Docker. No Redis. No Kubernetes. Runs on a $5 VPS or a bare-metal server. CPU-only. If it runs Node.js 20+, it runs Mach6.
 
 ---
 
@@ -162,19 +146,18 @@ One Node.js daemon runs everything — channels, routing, sessions, tools, provi
   "maxIterations": 25,
   "temperature": 0.3,
 
-  // Use forward slashes on all platforms
-  // Windows: "C:/Users/you/workspace"
   "workspace": "/home/you/workspace",
   "sessionsDir": ".sessions",
 
   "providers": {
-    "groq": { "baseUrl": "https://api.groq.com/openai" },
-    "anthropic": {},
-    "openai": {},
-    "xai": {},
-    "ollama": { "baseUrl": "http://127.0.0.1:11434" },
+    "groq":           { "baseUrl": "https://api.groq.com/openai" },
+    "anthropic":      {},
+    "openai":         {},
+    "xai":            {},
+    "ollama":         { "baseUrl": "http://127.0.0.1:11434" },
+    "gemini":         {},
     "github-copilot": {},
-    "gladius": { "baseUrl": "http://127.0.0.1:8741" }
+    "gladius":        { "baseUrl": "http://127.0.0.1:8741" }
   },
 
   "ownerIds": [
@@ -186,13 +169,10 @@ One Node.js daemon runs everything — channels, routing, sessions, tools, provi
     "enabled": true,
     "token": "${DISCORD_BOT_TOKEN}",
     "botId": "${DISCORD_CLIENT_ID}",
-    "siblingBotIds": [],
     "policy": {
       "dmPolicy": "allowlist",
       "groupPolicy": "mention-only",
-      "requireMention": true,
-      "allowedSenders": ["your-discord-user-id"],
-      "allowedGroups": []
+      "allowedSenders": ["your-discord-user-id"]
     }
   },
 
@@ -200,12 +180,9 @@ One Node.js daemon runs everything — channels, routing, sessions, tools, provi
     "enabled": true,
     "authDir": "~/.mach6/whatsapp-auth",
     "phoneNumber": "your-phone-number",
-    "autoRead": true,
     "policy": {
       "dmPolicy": "allowlist",
-      "groupPolicy": "mention-only",
-      "allowedSenders": ["your-phone@s.whatsapp.net"],
-      "allowedGroups": []
+      "allowedSenders": ["your-phone@s.whatsapp.net"]
     }
   },
 
@@ -219,44 +196,39 @@ All string values support `${ENV_VAR}` interpolation.
 
 ```bash
 # LLM Providers
-GROQ_API_KEY=gsk_...           # https://console.groq.com/keys (free tier)
-ANTHROPIC_API_KEY=sk-ant-...   # https://console.anthropic.com/
-OPENAI_API_KEY=sk-...          # https://platform.openai.com/api-keys
-XAI_API_KEY=xai-...            # https://console.x.ai/
-
-# GitHub Copilot — usually automatic via `gh auth login`
-# COPILOT_GITHUB_TOKEN=
-
-# Ollama — no key needed, just run `ollama serve`
+GROQ_API_KEY=gsk_...           # Free tier — https://console.groq.com/keys
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+XAI_API_KEY=xai-...
+GEMINI_API_KEY=AIza...         # Free tier — https://aistudio.google.com/apikey
 
 # Discord
 DISCORD_BOT_TOKEN=
 DISCORD_CLIENT_ID=
 
-# HTTP API authentication
+# HTTP API
 MACH6_API_KEY=
-
-# Port (default: 3006)
 MACH6_PORT=3006
 ```
-
-> Run `mach6 init` to generate both files interactively.
 
 ---
 
 ## 🧠 Providers
 
-| Provider | Config Key | How it authenticates | Speed |
-|----------|-----------|---------------------|-------|
-| **Groq** | `groq` | `GROQ_API_KEY` env var | ⚡ Fastest (LPU hardware) |
-| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY` env var | Fast |
-| **OpenAI** | `openai` | `OPENAI_API_KEY` env var | Fast |
-| **xAI (Grok)** | `xai` | `XAI_API_KEY` env var | Fast |
-| **GitHub Copilot** | `github-copilot` | Auto-resolved (see below) — no API key needed | Moderate |
-| **Ollama** | `ollama` | Local HTTP endpoint — no key needed | Varies (local) |
-| **Gladius** | `gladius` | Local HTTP endpoint | Local |
+| Provider | Key | Auth | Notes |
+|----------|-----|------|-------|
+| **Groq** | `groq` | `GROQ_API_KEY` | ⚡ Fastest. Free tier. Start here. |
+| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY` | Claude models |
+| **OpenAI** | `openai` | `OPENAI_API_KEY` | GPT-4o, o3 |
+| **xAI (Grok)** | `xai` | `XAI_API_KEY` | Grok 3, Grok 3 Mini |
+| **GitHub Copilot** | `github-copilot` | Auto (`gh auth login`) | Free with Copilot sub |
+| **Ollama** | `ollama` | None (local) | Any model, fully offline |
+| **Gemini** | `gemini` | `GEMINI_API_KEY` | Native SDK, streaming + thinking |
+| **Gladius** | `gladius` | None (local) | Artifact Virtual's AI kernel |
 
-> **Recommended for getting started:** Groq — free tier, 280-1000 tok/sec, no credit card needed. [Get a key →](https://console.groq.com/keys)
+Providers are hot-swappable mid-session via `/provider` and `/model` commands.
+
+**Recommended for getting started:** Groq — free tier, 280–1000 tok/sec, no credit card. [Get a key →](https://console.groq.com/keys)
 
 ### Groq models
 
@@ -264,75 +236,62 @@ MACH6_PORT=3006
 |-------|-------------|-------|
 | Llama 3.3 70B | `llama-3.3-70b-versatile` | Best all-around (default) |
 | Qwen3 32B | `qwen/qwen3-32b` | Strong reasoning |
-| Llama 3.1 8B | `llama-3.1-8b-instant` | Ultra-fast, lighter tasks |
+| Llama 3.1 8B | `llama-3.1-8b-instant` | Fastest, lighter tasks |
 
 ### xAI (Grok) models
 
-| Model | Config value | Notes |
-|-------|-------------|-------|
-| Grok 3 | `grok-3` | Strongest reasoning |
-| Grok 3 Fast | `grok-3-fast` | Lower latency |
-| Grok 3 Mini | `grok-3-mini` | Lightweight + think mode |
-| Grok 3 Mini Fast | `grok-3-mini-fast` | Fastest Grok |
-
-### GitHub Copilot token resolution
-
-No API key required if `gh` CLI is installed and authenticated. Token resolves in order:
-
-1. `COPILOT_GITHUB_TOKEN` env var
-2. `~/.copilot-cli-access-token` file
-3. `GH_TOKEN` / `GITHUB_TOKEN` env vars
-4. `~/.config/github-copilot/hosts.json` (Linux/macOS)
-5. `%APPDATA%\github-copilot\hosts.json` (Windows)
-6. `gh auth token` CLI fallback (all platforms)
-
-### Copilot proxy models
-
 | Model | Config value |
 |-------|-------------|
-| Claude Opus 4.6 | `claude-opus-4-6` |
-| Claude Sonnet 4 | `claude-sonnet-4` |
-| GPT-4o | `gpt-4o` |
-| o3-mini | `o3-mini` |
+| Grok 3 | `grok-3` |
+| Grok 3 Fast | `grok-3-fast` |
+| Grok 3 Mini | `grok-3-mini` |
 
-### Ollama (local models)
+### GitHub Copilot (no API key needed)
 
-Runs locally — no API key, no cloud. Install from [ollama.ai](https://ollama.ai), pull a model, go:
+Token auto-resolves from `gh auth login`. Proxy models include Claude Opus 4.6, Claude Sonnet 4, GPT-4o, o3-mini.
+
+### Gemini models
+
+| Model | Config value | Notes |
+|-------|-------------|-------|
+| Gemini 2.0 Flash | `gemini-2.0-flash` | Fast, multimodal (default) |
+| Gemini 2.0 Flash Thinking | `gemini-2.0-flash-thinking-exp` | Extended thinking |
+| Gemini 1.5 Pro | `gemini-1.5-pro` | Long context (1M tokens) |
+| Gemini 1.5 Flash | `gemini-1.5-flash` | Fast, free tier |
+
+### Ollama
 
 ```bash
 ollama pull qwen3:4b
-# Then set defaultProvider: "ollama", defaultModel: "qwen3:4b"
+# Then: defaultProvider: "ollama", defaultModel: "qwen3:4b"
 ```
-
-Providers are hot-swappable mid-session via `/provider` and `/model` commands.
 
 ---
 
 ## 🛠 Tools
 
-18 built-in tools, available to the agent by default:
+18 built-in tools available to every agent:
 
 | Tool | Description |
 |------|------------|
-| `read` | Read file contents (with offset/limit for large files) |
-| `write` | Write/create files (auto-creates parent directories) |
+| `read` | Read files (offset/limit for large files) |
+| `write` | Write/create files |
 | `edit` | Surgical find-and-replace editing |
-| `exec` | Execute shell commands |
-| `image` | Analyze images with vision models |
-| `web_fetch` | Fetch URLs, strip HTML to text |
-| `tts` | Text-to-speech (Edge TTS, multiple voices) |
+| `exec` | Shell command execution |
+| `image` | Vision model image analysis |
+| `web_fetch` | Fetch URLs, strip HTML |
+| `tts` | Text-to-speech (Edge TTS, 6 voices) |
 | `memory_search` | Hybrid BM25 + vector search over indexed files |
-| `comb_recall` | Recall persistent session-to-session memory |
+| `comb_recall` | Recall persistent memory from last session |
 | `comb_stage` | Stage information for next session |
-| `message` | Send messages, media, and reactions to any channel |
+| `message` | Send messages, media, reactions to any channel |
 | `typing` | Send typing indicators |
-| `presence` | Update presence status |
+| `presence` | Update presence/status |
 | `delete_message` | Delete messages |
 | `mark_read` | Send read receipts |
 | `process_start` | Start background processes |
-| `process_poll` | Poll background process output |
-| `process_kill` | Kill background processes |
-| `process_list` | List background processes |
+| `process_poll` | Poll process output |
+| `process_kill` | Kill processes |
 | `spawn` | Spawn sub-agents (up to depth 3) |
 
 Tools are sandboxed per-session via the policy engine. MCP bridge available for external tool servers.
@@ -341,15 +300,15 @@ Tools are sandboxed per-session via the policy engine. MCP bridge available for 
 
 ## 🖥 Web UI
 
-Mach6 ships with a built-in web interface at `http://localhost:3006`:
+Built-in at `http://localhost:3006`:
 
-- **Session management** — create, switch, delete sessions
-- **Streaming responses** — real-time SSE with tool call visualization
-- **Config panel** — change provider, model, temperature, API keys live
-- **Sub-agent monitoring** — view and kill running sub-agents
-- **Generative UI** — file reads, exec outputs, and fetches render as rich cards
+- Session management (create, switch, delete)
+- Streaming responses with real-time tool call visualization
+- Live config panel (provider, model, temperature, API keys)
+- Sub-agent monitoring
+- Rich rendering for file reads, exec output, fetches
 
-No build step. No npm dependencies. One static HTML file.
+No build step. One static HTML file.
 
 ---
 
@@ -358,34 +317,24 @@ No build step. No npm dependencies. One static HTML file.
 ### Interactive REPL
 
 ```bash
+mach6 repl
+# or
 node dist/index.js --config=mach6.json
-```
-
-```
-Mach6 v0.2 | github-copilot/claude-opus-4-6 | session: default
-Tools (18): read, write, edit, exec, image, web_fetch, tts, ...
-Type /help for commands
-
-❯ What's in the logs?
-⚡ exec
-✓ exec tail -50 /var/log/syslog
-...
 ```
 
 ### Commands
 
 | Command | Description |
 |---------|------------|
-| `/help` | Show all commands |
+| `/help` | All commands |
 | `/tools` | List available tools |
 | `/model <name>` | Switch model mid-session |
 | `/provider <name>` | Switch provider mid-session |
 | `/spawn <task>` | Spawn a sub-agent |
 | `/status` | Session stats (tokens, tool usage) |
 | `/sessions` | List all sessions |
-| `/history [N]` | Show last N messages |
+| `/history [N]` | Last N messages |
 | `/clear` | Clear current session |
-| `/quit` | Exit |
 
 ### One-shot mode
 
@@ -400,24 +349,20 @@ node dist/index.js "Summarize the README in this directory"
 ### Linux (systemd)
 
 ```bash
-# Copy the included service file
 sudo cp mach6-gateway.service /etc/systemd/system/
-# Edit it — set your paths and user
 sudo systemctl enable --now mach6-gateway
 
 # Hot-reload config without restarting:
 kill -USR1 $(pgrep -f "gateway/daemon.js")
 ```
 
-### macOS (launchd)
+### macOS
 
-Create `~/Library/LaunchAgents/com.mach6.gateway.plist` pointing to `node dist/gateway/daemon.js`.
+LaunchAgent pointing to `node dist/gateway/daemon.js`.
 
 ### Windows
 
-Use [NSSM](https://nssm.cc/) or Task Scheduler to run `node dist/gateway/daemon.js --config=mach6.json`.
-
-> **Note:** `SIGUSR1` hot-reload is not available on Windows. Restart the process to reload config.
+NSSM or Task Scheduler with `node dist/gateway/daemon.js --config=mach6.json`.
 
 ---
 
@@ -428,69 +373,64 @@ mach6/
 ├── src/
 │   ├── agent/          # Runner, context manager, system prompt builder
 │   ├── boot/           # Boot sequence & validation
-│   ├── channels/       # Adapter pattern — Discord, WhatsApp, router, bus
-│   │   ├── bus.ts      # Priority queue, coalescing, interrupts, backpressure
-│   │   ├── router.ts   # Policy, dedup, JID normalization, priority
-│   │   └── adapters/   # Discord (discord.js), WhatsApp (Baileys v7)
+│   ├── channels/       # Adapters — Discord, WhatsApp, router, bus
+│   │   ├── bus.ts      # Priority queue, coalescing, interrupts
+│   │   ├── router.ts   # Policy, dedup, JID normalization
+│   │   └── adapters/   # discord.js + Baileys v7
 │   ├── cli/            # Interactive setup wizard
 │   ├── config/         # Config loader, validator, env interpolation
 │   ├── cron/           # Cron budget management
-│   ├── formatters/     # Platform-aware markdown formatting
 │   ├── gateway/        # Persistent daemon — signals, hot-reload, turns
 │   ├── heartbeat/      # Activity-aware periodic health checks
-│   ├── memory/         # Index integrity checks
-│   ├── providers/      # LLM providers — Groq, Anthropic, OpenAI, xAI, Copilot, Ollama, Gladius
-│   ├── security/       # Input sanitization
+│   ├── providers/      # Groq, Anthropic, OpenAI, xAI, Copilot, Ollama, Gemini, Gladius
 │   ├── sessions/       # Session store, queue, sub-agents
-│   ├── tools/          # 18 built-in tools, policy engine, registry, MCP bridge
-│   └── web/            # Web UI server (SSE streaming, static serving)
+│   ├── tools/          # 18+ built-in tools, policy engine, MCP bridge
+│   └── web/            # Web UI server (SSE streaming)
 ├── web/                # Web UI (single HTML file)
-├── mach6.example.json  # Example config
-├── .env.example        # Example environment variables
-├── mach6.sh            # Linux/macOS start script
-├── mach6.ps1           # Windows start script
-└── mach6-gateway.service  # systemd unit file
+├── mach6.example.json
+├── .env.example
+└── mach6-gateway.service
 ```
 
 ---
 
-## 🔒 Hardening
+## 🔒 Production-Ready
 
-20+ production pain points addressed:
+20+ hardening decisions baked in:
 
-- **Blink** — seamless iteration budget continuation (no hard walls)
-- **Pulse** — adaptive iteration budget (20 → 100 on demand, auto-reverts)
-- **Native COMB** — lossless session-to-session memory, zero dependencies
-- **Config validation** with human-readable diagnostics at boot
-- **Context monitor** with progressive warnings (70/80/90% thresholds)
-- **Priority message queue** — real messages never drop, only background signals shed under backpressure
-- **Tool policy engine** — scope available tools per session and security tier
-- **Provider diagnostics** — health checks and automatic failover
-- **Activity-aware heartbeat** — adapts frequency to user activity state
-- **Cron budget management** — jobs declare resource budgets, scheduler enforces daily limits
-- **Boot sequence validation** — catch misconfigurations before they become incidents
-- **Memory index integrity** — validates HEKTOR indices at startup, auto-rebuilds if corrupt
-- **JID normalization** for WhatsApp Baileys v7 (device suffix stripping)
-- **Abort signal propagation** through agent runner → LLM stream → tool execution
-- **MCP bridge** for connecting external tool servers
-- **MCP server mode** — expose Mach6 tools to external agents and editors
-- **Sibling bot yield** — @mention one bot, only that one responds
-- **Anti-loop system** — structural echo loop prevention in multi-bot environments
+| Feature | What it does |
+|---------|-------------|
+| **Blink** | Seamless iteration budget continuation — no hard walls |
+| **Pulse** | Adaptive budget: 20 → 100 on demand, auto-reverts |
+| **COMB** | Lossless session-to-session memory, zero dependencies |
+| **Config validation** | Human-readable diagnostics at boot |
+| **Context monitor** | Progressive warnings at 70/80/90% |
+| **Priority queue** | Real messages never drop, only background signals shed |
+| **Tool policy engine** | Scope tools per session and security tier |
+| **Provider diagnostics** | Health checks + automatic failover |
+| **Activity-aware heartbeat** | Adapts frequency to user presence |
+| **Cron budget management** | Jobs declare resource budgets, scheduler enforces limits |
+| **Memory index integrity** | Validates HEKTOR indices at startup, auto-rebuilds if corrupt |
+| **Abort propagation** | Agent runner → LLM stream → tool execution |
+| **MCP bridge** | Connect external tool servers |
+| **MCP server mode** | Expose Mach6 tools to external agents and editors |
+| **Sibling bot yield** | @mention one bot, only that one responds |
+| **Anti-loop system** | Structural echo loop prevention in multi-bot environments |
 
 ---
 
-## 📊 Stats
+## 📊 By the Numbers
 
-| Metric | Value |
-|--------|-------|
-| Lines of TypeScript | ~15,000+ |
+| | |
+|--|--|
+| TypeScript source | ~15,000+ lines |
 | Source files | 70+ |
 | Built-in tools | 18+ |
-| LLM providers | 7 |
+| LLM providers | 8 |
 | Channel adapters | 2 + HTTP API |
 | Documentation files | 37 |
-| Cold boot to connected | ~2.3s |
-| External runtime deps | Node.js only |
+| Cold boot → connected | ~2.3s |
+| Runtime dependencies | Node.js only |
 
 ---
 
@@ -499,30 +439,23 @@ mach6/
 | Feature | Windows | Linux | macOS |
 |---------|---------|-------|-------|
 | Gateway daemon | ✅ | ✅ | ✅ |
-| Discord adapter | ✅ | ✅ | ✅ |
-| WhatsApp adapter | ✅ | ✅ | ✅ |
+| Discord + WhatsApp | ✅ | ✅ | ✅ |
 | HTTP API + Web UI | ✅ | ✅ | ✅ |
-| CLI (REPL + one-shot) | ✅ | ✅ | ✅ |
+| CLI | ✅ | ✅ | ✅ |
 | Hot-reload (SIGUSR1) | ❌ | ✅ | ✅ |
-| Service manager | Task Scheduler | systemd | launchd |
-| Temp directory | `%TEMP%` | `/tmp` | `/tmp` |
-| Home directory | `%USERPROFILE%` | `~` | `~` |
-
-All paths resolved via `os.tmpdir()` and `os.homedir()` — zero hardcoded Unix paths.
 
 ---
 
-## 📜 History
+## 📜 Changelog
 
-| Date | Milestone |
-|------|----------|
-| **Feb 22, 2026** | Built from scratch. WhatsApp, Discord, gateway, config, tools, sessions. |
-| **Feb 22, 2026** | 14/14 smoke tests. 20 hardening fixes. Flipped to production same day. |
-| **Feb 23, 2026** | Open-sourced. MIT license. |
-| **Feb 28, 2026** | Cross-platform (Windows/Linux/macOS). CLI wizard. v1.0.0. |
-| **Mar 3, 2026** | Multi-bot coordination, ATM, sibling yield. v1.3.0. |
-| **Mar 5, 2026** | MCP server, anti-loop, degradation protection. v1.4.0. |
-| **Mar 6, 2026** | Blink, Pulse, COMB, 7 providers, agent wizard. v1.5.0. |
+| Version | Date | What changed |
+|---------|------|-------------|
+| **v1.6.0** | Mar 7, 2026 | Native Gemini, 8 providers, multi-user deployment, agent wizard |
+| **v1.5.0** | Mar 6, 2026 | Blink, Pulse, COMB, 7 providers |
+| **v1.4.0** | Mar 5, 2026 | MCP server, anti-loop, degradation protection |
+| **v1.3.0** | Mar 3, 2026 | Sibling bot yield, ATM |
+| **v1.0.0** | Feb 28, 2026 | Cross-platform, CLI wizard |
+| **v0.1.0** | Feb 22, 2026 | Initial release — built and shipped same day |
 
 ---
 
@@ -536,6 +469,12 @@ All paths resolved via `os.tmpdir()` and `os.homedir()` — zero hardcoded Unix 
 
 Built by **[Artifact Virtual](https://artifactvirtual.com)**
 
-Open-sourced because infrastructure wants to be free.
+---
+
+`#ai-agent` `#llm-agent` `#autonomous-agent` `#tool-calling` `#agentic-ai`
+`#discord-bot` `#whatsapp-bot` `#multi-channel` `#chatbot-framework`
+`#groq` `#anthropic` `#claude` `#openai` `#gpt4` `#grok` `#xai`
+`#ollama` `#local-llm` `#github-copilot` `#mcp` `#model-context-protocol`
+`#typescript` `#nodejs` `#self-hosted` `#open-source` `#local-first`
 
 </div>

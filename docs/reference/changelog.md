@@ -8,7 +8,7 @@
 - **Native COMB** — lossless session-to-session memory, pure Node.js, zero external dependencies. Automatic fallback if Python COMB exists. `comb_recall` and `comb_stage` built-in tools. Session auto-flush on shutdown.
 - **Groq provider** — free tier, 280-1000 tok/sec on LPU hardware. Auto-retry on rate limits with server-specified delays. **New default provider.**
 - **xAI (Grok) provider** — Grok 3, Grok 3 Fast, Grok 3 Mini, Grok 3 Mini Fast. OpenAI-compatible with rate limit handling.
-- **Ollama provider** — fully local, fully offline. No API key needed. Sovereign fallback.
+- **Ollama** — fully local, fully offline. No API key needed. Local fallback.
 - **Agent creation wizard** — 6-step interactive setup generates `mach6.json`, `.env`, and identity files (SOUL.md, IDENTITY.md, USER.md, AGENTS.md, HEARTBEAT.md). Clean-room templates with zero bleed.
 - **Agent scaffold** — `scaffoldAgent()` function generates personalized identity files for new agents.
 - **dotenv auto-loading** — `.env` file automatically loaded at startup. No manual setup required.

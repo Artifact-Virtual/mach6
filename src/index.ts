@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Mach6 — CLI Entry Point
-// Sovereign AI agent framework · Artifact Virtual
+// AI agent framework · Artifact Virtual
 import 'dotenv/config';
 
 // Route CLI subcommands (init, start, stop, status, configure, install, logs, etc.)

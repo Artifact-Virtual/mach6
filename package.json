@@ -1,6 +1,6 @@
 {
   "name": "mach6-core",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Mach6 — Multi-channel AI agent framework. Persistent daemon, real-time interrupts, tool execution. Runs on a laptop.",
   "type": "module",
   "main": "dist/index.js",
@@ -22,18 +22,31 @@
     "init": "tsc && node dist/cli/wizard.js"
   },
   "keywords": [
-    "ai",
-    "agent",
-    "framework",
-    "llm",
-    "discord",
-    "whatsapp",
-    "claude",
-    "copilot",
-    "chatbot",
-    "multi-channel",
+    "ai-agent",
+    "ai-agent-framework",
+    "llm-agent",
+    "autonomous-agent",
+    "agentic-ai",
     "tool-calling",
-    "sovereign"
+    "multi-channel",
+    "discord-bot",
+    "whatsapp-bot",
+    "chatbot",
+    "llm",
+    "groq",
+    "openai",
+    "anthropic",
+    "claude",
+    "grok",
+    "ollama",
+    "github-copilot",
+    "mcp",
+    "model-context-protocol",
+    "typescript",
+    "nodejs",
+    "local-first",
+    "self-hosted",
+    "open-source"
   ],
   "author": "Artifact Virtual <hello@artifactvirtual.com> (https://artifactvirtual.com)",
   "license": "MIT",
@@ -52,10 +65,12 @@
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "discord.js": "^14.25.1",
     "dotenv": "^17.3.1",
+    "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/qrcode": "^1.5.6",
     "typescript": "^5.7.0"
   },
   "overrides": {

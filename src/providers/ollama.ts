@@ -1,5 +1,5 @@
 // Mach6 — Ollama local provider (OpenAI-compat API, localhost:11434)
-// Sovereign fallback — runs entirely on local hardware, no cloud dependency
+// Local fallback — runs entirely on local hardware, no cloud dependency
 
 import type { Message, ToolDef, ProviderConfig, StreamEvent, Provider } from './types.js';
 import { openaiProvider } from './openai.js';

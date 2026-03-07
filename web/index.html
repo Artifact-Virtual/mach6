@@ -348,7 +348,7 @@ body {
     <div class="messages" id="messages">
       <div class="empty-state" id="emptyState">
         <div class="empty-state-icon">🔮</div>
-        <div class="empty-state-text">AVA — Sovereign Mode</div>
+        <div class="empty-state-text">AVA</div>
         <div class="empty-state-hint">Type a message to begin</div>
       </div>
     </div>
@@ -427,7 +427,7 @@ function newChat() {
   renderSessionList();
   // Show empty state
   const el = document.getElementById('messages');
-  el.innerHTML = '<div class="empty-state" id="emptyState"><div class="empty-state-icon">🔮</div><div class="empty-state-text">AVA — Sovereign Mode</div><div class="empty-state-hint">Type a message to begin</div></div>';
+  el.innerHTML = '<div class="empty-state" id="emptyState"><div class="empty-state-icon">🔮</div><div class="empty-state-text">AVA</div><div class="empty-state-hint">Type a message to begin</div></div>';
   closeSidebarMobile();
 }
 
@@ -511,7 +511,7 @@ function renderMessages() {
   const emptyState = document.getElementById('emptyState');
   if (emptyState && currentMessages.length > 0) emptyState.remove();
   if (currentMessages.length === 0) {
-    el.innerHTML = '<div class="empty-state" id="emptyState"><div class="empty-state-icon">🔮</div><div class="empty-state-text">AVA — Sovereign Mode</div><div class="empty-state-hint">Type a message to begin</div></div>';
+    el.innerHTML = '<div class="empty-state" id="emptyState"><div class="empty-state-icon">🔮</div><div class="empty-state-text">AVA</div><div class="empty-state-hint">Type a message to begin</div></div>';
     return;
   }
   el.innerHTML = currentMessages.map(function(msg, i) {

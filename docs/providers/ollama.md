@@ -2,7 +2,7 @@
 
 Run models locally — fully offline, no API keys, no cloud dependency. Uses Ollama's OpenAI-compatible API endpoint.
 
-> **Sovereign fallback.** Your hardware, your models, zero data leaves your machine.
+> **Local fallback.** Your hardware, your models, zero data leaves your machine.
 
 ## Setup
 

@@ -4,7 +4,7 @@
  * The persistent process. Manages channel lifecycle, agent sessions,
  * signal handling, graceful shutdown, and hot-reload.
  * 
- * Mach6 AI Gateway — sovereign engine.
+ * Mach6 AI Gateway — persistent engine.
  */
 import 'dotenv/config';
 

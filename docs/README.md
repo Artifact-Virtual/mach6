@@ -1,6 +1,6 @@
 # Mach6
 
-**Sovereign AI agent framework. Single process. Any machine.**
+**AI agent framework. Single process. Any machine.**
 
 Mach6 is a persistent daemon that connects messaging platforms, LLM providers, and tool execution into a single agentic loop — with real-time interrupts, message coalescing, and sub-agent orchestration.
 
@@ -40,7 +40,7 @@ No Docker. No Redis. No cloud dependencies. **Your machine, your data, your keys
 | Multi-agent system | Sub-agent spawning with depth control |
 | Enterprise chatbot | HTTP API + tool policy engine + session management |
 | Multi-platform bridge | Same agent identity across Discord, WhatsApp, and HTTP |
-| Sovereign agent | Ollama + local tools, zero cloud dependency |
+| Local-first agent | Ollama + local tools, zero cloud dependency |
 
 ---
 
