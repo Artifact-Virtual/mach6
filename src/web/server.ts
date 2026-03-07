@@ -84,6 +84,9 @@ try {
   const loaded = JSON.parse(raw);
   if (loaded.name) agentName = loaded.name;
   if (loaded.emoji) agentEmoji = loaded.emoji;
+  // Map mach6.json fields to webchat config
+  if (loaded.defaultProvider) config.provider = loaded.defaultProvider;
+  if (loaded.defaultModel) config.model = loaded.defaultModel;
   config = { ...config, ...loaded };
 } catch { /* no config file yet */ }
 
@@ -488,8 +491,8 @@ export function startWebServer(port = 3006): http.Server {
   };
   sessions.set(defaultSession.id, defaultSession);
 
-  server.listen(port, () => {
-    console.log(ok(`Web UI → ${palette.cyan}http://localhost:${port}${palette.reset}`));
+  server.listen(port, '0.0.0.0', () => {
+    console.log(ok(`Web UI → ${palette.cyan}http://0.0.0.0:${port}${palette.reset}`));
   });
 
   return server;
