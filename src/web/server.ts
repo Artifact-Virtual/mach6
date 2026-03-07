@@ -155,7 +155,7 @@ const TOOLS = [
   { name: 'image', description: 'Analyze images' },
 ];
 
-// ── Simulated chat streaming ───────────────────────────────────────────────
+// ── Real chat streaming (proxies to HTTP API on port 3006) ─────────────────
 
 async function streamChat(
   res: http.ServerResponse,
@@ -168,7 +168,7 @@ async function streamChat(
     return;
   }
 
-  // Add user message
+  // Add user message to local session
   const userMsg: Message = {
     id: uid(),
     role: 'user',
@@ -187,89 +187,120 @@ async function streamChat(
   });
 
   const startMs = Date.now();
-
-  // Simulate tool call for certain keywords
   const assistantId = uid();
-  const toolCalls: ToolCall[] = [];
 
-  if (userMessage.toLowerCase().includes('file') || userMessage.toLowerCase().includes('read')) {
-    const tc: ToolCall = {
-      id: uid(),
-      name: 'read',
-      input: JSON.stringify({ path: 'example.ts' }),
-      status: 'running',
-      startedAt: Date.now(),
+  try {
+    // Proxy to real HTTP API (port 3006) which runs through the actual agent pipeline
+    const apiPort = parseInt(process.env.MACH6_API_PORT ?? '3006', 10);
+    const payload = JSON.stringify({ sessionId, message: userMessage });
+
+    const apiRes = await new Promise<http.IncomingMessage>((resolve, reject) => {
+      const apiReq = http.request({
+        hostname: '127.0.0.1',
+        port: apiPort,
+        path: '/api/chat',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+        timeout: 300000, // 5 min timeout for long agent runs
+      }, resolve);
+      apiReq.on('error', reject);
+      apiReq.on('timeout', () => { apiReq.destroy(); reject(new Error('API timeout')); });
+      apiReq.write(payload);
+      apiReq.end();
+    });
+
+    if (apiRes.statusCode !== 200) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of apiRes) chunks.push(chunk as Buffer);
+      const errBody = Buffer.concat(chunks).toString();
+      let errMsg = 'API error';
+      try { errMsg = JSON.parse(errBody).error || errMsg; } catch { /* ignore */ }
+      res.write(`data: ${JSON.stringify({ type: 'text', content: `Error: ${errMsg}`, id: assistantId })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'done', message: { latencyMs: Date.now() - startMs } })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // Forward SSE events from real API to webchat client
+    let fullContent = '';
+    let buffer = '';
+
+    apiRes.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? ''; // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const dataStr = line.slice(6).trim();
+        if (!dataStr) continue;
+
+        try {
+          const data = JSON.parse(dataStr);
+          if (data.type === 'text') {
+            fullContent += data.content;
+            // Forward with our assistant ID
+            res.write(`data: ${JSON.stringify({ type: 'text', content: data.content, id: assistantId })}\n\n`);
+          } else if (data.type === 'tool_start' || data.type === 'tool_end') {
+            // Forward tool call events as-is
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
+          } else if (data.type === 'done') {
+            // We'll send our own done event below
+          }
+        } catch { /* skip unparseable lines */ }
+      }
+    });
+
+    await new Promise<void>((resolve) => {
+      apiRes.on('end', resolve);
+      apiRes.on('error', () => resolve());
+    });
+
+    // Process any remaining buffer
+    if (buffer.startsWith('data: ')) {
+      const dataStr = buffer.slice(6).trim();
+      if (dataStr) {
+        try {
+          const data = JSON.parse(dataStr);
+          if (data.type === 'text') fullContent += data.content;
+        } catch { /* ignore */ }
+      }
+    }
+
+    const latency = Date.now() - startMs;
+    const tokensOut = Math.ceil(fullContent.length / 4);
+    totalTokens += (userMsg.tokensIn ?? 0) + tokensOut;
+    session.tokensUsed += (userMsg.tokensIn ?? 0) + tokensOut;
+
+    const assistantMsg: Message = {
+      id: assistantId,
+      role: 'assistant',
+      content: fullContent || '(no response)',
+      timestamp: Date.now(),
+      tokensIn: userMsg.tokensIn,
+      tokensOut,
+      latencyMs: latency,
     };
-    toolCalls.push(tc);
-    res.write(`data: ${JSON.stringify({ type: 'tool_start', toolCall: tc })}\n\n`);
-    await delay(500);
-    tc.status = 'done';
-    tc.output = '// example file content\nexport const hello = "world";';
-    tc.finishedAt = Date.now();
-    res.write(`data: ${JSON.stringify({ type: 'tool_end', toolCall: tc })}\n\n`);
+    session.messages.push(assistantMsg);
+    session.updatedAt = Date.now();
+
+    res.write(`data: ${JSON.stringify({ type: 'done', message: assistantMsg })}\n\n`);
+    res.end();
+
+  } catch (err) {
+    const latency = Date.now() - startMs;
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`  [mach6-web] Chat proxy error: ${errMsg}`);
+
+    // Send error as assistant message so user sees it
+    const errorContent = `Connection to agent failed: ${errMsg}. Make sure the Mach6 agent is running.`;
+    res.write(`data: ${JSON.stringify({ type: 'text', content: errorContent, id: assistantId })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'done', message: { id: assistantId, role: 'assistant', content: errorContent, timestamp: Date.now(), latencyMs: latency } })}\n\n`);
+    res.end();
   }
-
-  if (userMessage.toLowerCase().includes('run') || userMessage.toLowerCase().includes('exec')) {
-    const tc: ToolCall = {
-      id: uid(),
-      name: 'exec',
-      input: JSON.stringify({ command: 'echo "Hello from Mach6"' }),
-      status: 'running',
-      startedAt: Date.now(),
-    };
-    toolCalls.push(tc);
-    res.write(`data: ${JSON.stringify({ type: 'tool_start', toolCall: tc })}\n\n`);
-    await delay(400);
-    tc.status = 'done';
-    tc.output = 'Hello from Mach6';
-    tc.finishedAt = Date.now();
-    res.write(`data: ${JSON.stringify({ type: 'tool_end', toolCall: tc })}\n\n`);
-  }
-
-  // Simulate streaming response
-  const response = generateResponse(userMessage);
-  let fullContent = '';
-
-  for (let i = 0; i < response.length; i++) {
-    const chunk = response[i];
-    fullContent += chunk;
-    res.write(`data: ${JSON.stringify({ type: 'text', content: chunk, id: assistantId })}\n\n`);
-    await delay(15 + Math.random() * 25);
-  }
-
-  const latency = Date.now() - startMs;
-  const tokensOut = Math.ceil(fullContent.length / 4);
-  totalTokens += (userMsg.tokensIn ?? 0) + tokensOut;
-  session.tokensUsed += (userMsg.tokensIn ?? 0) + tokensOut;
-
-  const assistantMsg: Message = {
-    id: assistantId,
-    role: 'assistant',
-    content: fullContent,
-    timestamp: Date.now(),
-    tokensIn: userMsg.tokensIn,
-    tokensOut,
-    latencyMs: latency,
-    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-  };
-  session.messages.push(assistantMsg);
-  session.updatedAt = Date.now();
-
-  res.write(`data: ${JSON.stringify({ type: 'done', message: assistantMsg })}\n\n`);
-  res.end();
-}
-
-function generateResponse(input: string): string {
-  const responses = [
-    `I understand you're asking about **${input.split(' ').slice(0, 3).join(' ')}**. Let me help with that.\n\nHere's what I can tell you:\n\n1. The system is running smoothly\n2. All components are operational\n3. Memory usage is within normal parameters\n\n\`\`\`typescript\n// Example code block\nconst status = await checkSystem();\nconsole.log(status);\n\`\`\`\n\nLet me know if you need anything else.`,
-    `Great question! Here's a detailed breakdown:\n\n**Key Points:**\n- Mach6 is running in sovereign mode\n- All providers are configured\n- Zero external dependencies\n\n> "The best code is no code at all." — Someone wise\n\nWould you like me to elaborate on any of these points?`,
-    `Processing your request...\n\nI've analyzed the situation and here's my assessment:\n\n### Summary\nEverything looks good. The architecture is clean, the performance is solid, and the codebase is maintainable.\n\n### Details\n- **Latency:** < 100ms p99\n- **Memory:** 45MB RSS\n- **Uptime:** 99.97%\n\n\`\`\`json\n{\n  "status": "healthy",\n  "version": "0.1.0",\n  "engine": "mach6"\n}\n\`\`\``,
-  ];
-  return responses[Math.floor(Math.random() * responses.length)];
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ── Serve static files ─────────────────────────────────────────────────────
