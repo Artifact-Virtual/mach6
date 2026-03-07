@@ -11,7 +11,7 @@ npx mach6 init
 The [interactive wizard](wizard.md) walks you through 6 steps:
 
 1. **Agent Identity** — name, emoji, personality (generates SOUL.md, IDENTITY.md, etc.)
-2. **Provider** — choose from 7 LLM providers (Groq is the default — free, fastest)
+2. **Provider** — choose from 8 LLM providers (Groq is the default — free, fastest)
 3. **Channels** — Discord and/or WhatsApp (both optional)
 4. **Access Control** — owner IDs, DM/group policies
 5. **Workspace** — working directory and API port
