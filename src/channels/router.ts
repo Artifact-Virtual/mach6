@@ -130,7 +130,12 @@ export class InboundRouter {
 
     // 3. Policy check (mention-only protocol)
     const policy = this.getPolicy(source.channelType);
-    if (!this.checkPolicy(policy, source)) return false;
+    if (!this.checkPolicy(policy, source)) {
+      if (source.chatType === 'group') {
+        console.log(`[router] Group message from ${source.chatId} dropped by policy (no @mention match). mentions=${JSON.stringify(source.mentions ?? [])}, selfId=${policy.selfId}, aliases=${JSON.stringify(policy.selfIdAliases ?? [])}`);
+      }
+      return false;
+    }
 
     // 4. Resolve session
     const sessionId = this.resolveSession(source);
@@ -206,7 +211,9 @@ export class InboundRouter {
 
   private isMentioned(policy: ChannelPolicy, source: ChannelSource): boolean {
     if (!policy.selfId || !source.mentions) return false;
-    return source.mentions.includes(policy.selfId);
+    // Check primary selfId AND any aliases (e.g. WhatsApp LID ↔ phone JID)
+    const selfIds = [policy.selfId, ...(policy.selfIdAliases ?? [])];
+    return source.mentions.some(m => selfIds.includes(m));
   }
 
   // ── Session Resolution ─────────────────────────────────────────────────

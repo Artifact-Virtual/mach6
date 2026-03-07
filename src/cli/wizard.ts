@@ -59,6 +59,7 @@ const PROVIDERS = [
   { id: 'github-copilot', name: 'GitHub Copilot', detail: 'auto-auth via gh CLI', defaultModel: 'claude-sonnet-4', needsKey: false, icon: '◈' },
   { id: 'anthropic', name: 'Anthropic', detail: 'Claude models', defaultModel: 'claude-sonnet-4-20250514', needsKey: true, icon: '◉' },
   { id: 'openai', name: 'OpenAI', detail: 'GPT-4o / o3', defaultModel: 'gpt-4o', needsKey: true, icon: '◎' },
+  { id: 'gemini', name: 'Google Gemini', detail: 'Gemini 3 Pro / Flash — native API', defaultModel: 'gemini-3-pro-preview', needsKey: true, icon: '◈' },
   { id: 'ollama', name: 'Ollama', detail: 'local models (llama, qwen, etc.)', defaultModel: 'qwen3:4b', needsKey: false, icon: '◆' },
   { id: 'groq', name: 'Groq', detail: 'fast inference', defaultModel: 'llama-3.3-70b-versatile', needsKey: true, icon: '◊' },
   { id: 'xai', name: 'xAI (Grok)', detail: 'Grok 3 — reasoning + speed', defaultModel: 'grok-3-fast', needsKey: true, icon: '✦' },
@@ -80,6 +81,12 @@ const MODELS_BY_PROVIDER: Record<string, { id: string; name: string }[]> = {
     { id: 'gpt-4o', name: 'GPT-4o' },
     { id: 'o3-mini', name: 'o3-mini' },
     { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+  ],
+  'gemini': [
+    { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (thinking)' },
+    { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (fast)' },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (stable)' },
+    { id: 'gemini-2.5-pro-preview-06-05', name: 'Gemini 2.5 Pro' },
   ],
   'gladius': [
     { id: 'gladius-125m', name: 'Gladius 125M' },
@@ -585,6 +592,7 @@ class Wizard {
         'github-copilot': {},
         'anthropic': {},
         'openai': {},
+        'gemini': {},
         'ollama': { baseUrl: 'http://127.0.0.1:11434' },
         'groq': { baseUrl: 'https://api.groq.com/openai' },
         'xai': {},
@@ -663,6 +671,12 @@ class Wizard {
       lines.push(`XAI_API_KEY=${config.apiKey}`);
     } else {
       lines.push('# XAI_API_KEY=');
+    }
+
+    if (config.provider === 'gemini' && config.apiKey) {
+      lines.push(`GEMINI_API_KEY=${config.apiKey}`);
+    } else {
+      lines.push('# GEMINI_API_KEY=');
     }
 
     lines.push('');

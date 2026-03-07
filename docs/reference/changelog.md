@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.6.0 — Native Gemini, 8 Providers, Multi-User Deployment (2026-03-07)
+
+### Features
+- **Native Gemini provider** — `@google/genai` SDK integration with streaming, function calling, thinking support, and automatic `thoughtSignature` preservation across tool call roundtrips.
+- **8 LLM providers** — added Gemini alongside Groq, Anthropic, OpenAI, xAI, GitHub Copilot, Ollama, Gladius.
+- **Agent creation wizard (6-step)** — identity, provider, channels, access, workspace, review. Generates `SOUL.md`, `IDENTITY.md`, `USER.md`, `AGENTS.md`, `HEARTBEAT.md`.
+- **Multi-user deployment** — one Mach6 install serves multiple user profiles with isolated workspaces and configs.
+- **Sandbox wildcard ownerIds** — `"*"` allows open access for testing/demo deployments.
+- **De-branded web UI** — agent name and emoji pulled from config, not hardcoded.
+- **Self-contained QR HTML** — WhatsApp QR pairing page works without CDN dependencies.
+- **Landing page** — `mach6.artifactvirtual.com` with CNAME support.
+
+### Fixes
+- **dotenv auto-import** — `.env` files are now loaded automatically at startup (previously ignored silently).
+- **xAI provider registration** — `xai` was defined but not registered in the provider map. Fixed.
+- **Default provider** — changed from `github-copilot` (requires `gh` CLI auth) to `groq` (free API key, fastest).
+- **Discord chatType detection** — correctly identifies channel vs thread messages.
+- **Gemini schema adaptation** — automatically strips `additionalProperties` from tool schemas (Gemini rejects them).
+
+### Stats
+- 8 LLM providers
+- 18+ built-in tools
+- 2 channel adapters + HTTP API
+- 38 documentation files
+
+---
+
 ## v1.5.0 — Blink, Pulse, COMB, 7 Providers, Agent Wizard (2026-03-06)
 
 ### Features

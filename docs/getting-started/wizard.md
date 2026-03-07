@@ -51,13 +51,14 @@ The wizard walks through 6 steps:
 
 ### 2. Provider
 
-Choose from 7 providers:
+Choose from 8 providers:
 
 | Provider | Key Needed? | Notes |
 |----------|-------------|-------|
 | GitHub Copilot | No | Auto-auth via `gh` CLI |
 | Anthropic | Yes | Claude models |
 | OpenAI | Yes | GPT-4o / o3 |
+| Gemini | Yes | Google AI — thinking support, 1M context |
 | Ollama | No | Local models, fully offline |
 | Groq | Yes | Free tier, fastest inference |
 | xAI (Grok) | Yes | Grok 3 — reasoning + speed |

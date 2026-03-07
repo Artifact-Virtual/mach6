@@ -57,6 +57,7 @@ import type { Provider, ProviderConfig } from '../providers/types.js';
 import { anthropicProvider } from '../providers/anthropic.js';
 import { openaiProvider } from '../providers/openai.js';
 import { githubCopilotProvider } from '../providers/github-copilot.js';
+import { geminiProvider } from '../providers/gemini.js';
 import { gladiusProvider } from '../providers/gladius.js';
 import { groqProvider } from '../providers/groq.js';
 import { ollamaProvider } from '../providers/ollama.js';
@@ -65,6 +66,7 @@ import type { BusEnvelope, ChannelPolicy, OutboundMessage } from '../channels/ty
 import { formatForChannel } from '../channels/formatter.js';
 import { createSandboxedRegistry, type SessionContext } from '../tools/sandbox.js';
 import { HttpApiServer, type ChatRequest, type ChatResponse } from '../web/http-api.js';
+import { startWebServer } from '../web/server.js';
 import { McpBridge } from '../tools/mcp-bridge.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -117,6 +119,7 @@ const PROVIDERS = new Map<string, Provider>([
   ['anthropic', anthropicProvider],
   ['openai', openaiProvider],
   ['github-copilot', githubCopilotProvider],
+  ['gemini', geminiProvider],
   ['gladius', gladiusProvider],
   ['groq', groqProvider],
   ['ollama', ollamaProvider],
@@ -142,6 +145,7 @@ export class Mach6Gateway {
   private pulseBudget: PulseBudgetManager;
   private startTime = Date.now();
   private httpApi: HttpApiServer | null = null;
+  private webServer: import('node:http').Server | null = null;
   private mcpBridges: McpBridge[] = [];
   /** Per-adapter system prompt file overrides (adapterId → file list) */
   private adapterPromptFiles = new Map<string, { path: string; label: string }[]>();
@@ -179,14 +183,19 @@ export class Mach6Gateway {
       }
     }
 
-    // Tools
+    // Tools (can be disabled via config: "tools": { "enabled": false })
     this.toolRegistry = new ToolRegistry();
-    for (const tool of [
-      readTool, writeTool, editTool, execTool, imageTool,
-      processStartTool, processPollTool, processKillTool, processListTool,
-      ttsTool, webFetchTool, memorySearchTool, combRecallTool, combStageTool,
-    ]) {
-      this.toolRegistry.register(tool);
+    const toolsEnabled = (this.gatewayConfig as any).tools?.enabled !== false;
+    if (toolsEnabled) {
+      for (const tool of [
+        readTool, writeTool, editTool, execTool, imageTool,
+        processStartTool, processPollTool, processKillTool, processListTool,
+        ttsTool, webFetchTool, memorySearchTool, combRecallTool, combStageTool,
+      ]) {
+        this.toolRegistry.register(tool);
+      }
+    } else {
+      console.log(`${palette.dim}  [gateway]${palette.reset} Tools ${palette.yellow}disabled${palette.reset} via config`);
     }
 
     // Heartbeat scheduler
@@ -218,11 +227,13 @@ export class Mach6Gateway {
     });
 
     // Register message tool (needs channelRegistry — must come after registry creation)
-    this.toolRegistry.register(createMessageTool(this.channelRegistry));
-    this.toolRegistry.register(createTypingTool(this.channelRegistry));
-    this.toolRegistry.register(createPresenceTool(this.channelRegistry));
-    this.toolRegistry.register(createDeleteMessageTool(this.channelRegistry));
-    this.toolRegistry.register(createMarkReadTool(this.channelRegistry));
+    if (toolsEnabled) {
+      this.toolRegistry.register(createMessageTool(this.channelRegistry));
+      this.toolRegistry.register(createTypingTool(this.channelRegistry));
+      this.toolRegistry.register(createPresenceTool(this.channelRegistry));
+      this.toolRegistry.register(createDeleteMessageTool(this.channelRegistry));
+      this.toolRegistry.register(createMarkReadTool(this.channelRegistry));
+    }
 
     // Sub-agent manager + spawn tools
     this.subAgentManager = new SubAgentManager(this.sessionManager);
@@ -234,10 +245,12 @@ export class Mach6Gateway {
       temperature: this.config.temperature,
       ...provCfg,
     };
-    this.toolRegistry.register(createSpawnTool(
-      this.subAgentManager, this.provider, spawnProvConfig, this.toolRegistry, this.config.workspace
-    ));
-    this.toolRegistry.register(createSubAgentStatusTool(this.subAgentManager));
+    if (toolsEnabled) {
+      this.toolRegistry.register(createSpawnTool(
+        this.subAgentManager, this.provider, spawnProvConfig, this.toolRegistry, this.config.workspace
+      ));
+      this.toolRegistry.register(createSubAgentStatusTool(this.subAgentManager));
+    }
 
     // Rebuild system prompt now that all tools are registered
     this.systemPrompt = buildSystemPrompt({
@@ -280,6 +293,9 @@ export class Mach6Gateway {
 
     // Start HTTP API server
     await this.startHttpApi();
+
+    // Start Web UI server (bound to 0.0.0.0 for LAN access)
+    this.startWebUi();
 
     const elapsed = Date.now() - this.startTime;
     console.log();
@@ -404,12 +420,29 @@ export class Mach6Gateway {
         const waPhoneJid = channels.whatsapp.phoneNumber
           ? `${channels.whatsapp.phoneNumber}@s.whatsapp.net`
           : undefined;
+
+        // Resolve LID alias for mention detection (WhatsApp uses LID in group mentions)
+        const selfIdAliases: string[] = [];
+        if (channels.whatsapp.phoneNumber && channels.whatsapp.authDir) {
+          try {
+            const lidMapPath = path.join(channels.whatsapp.authDir, `lid-mapping-${channels.whatsapp.phoneNumber}.json`);
+            const lidNum = JSON.parse(fs.readFileSync(lidMapPath, 'utf-8'));
+            if (lidNum) {
+              selfIdAliases.push(`${lidNum}@lid`);
+              console.log(info(`WhatsApp LID alias: ${lidNum}@lid`));
+            }
+          } catch {
+            // LID mapping file may not exist yet — non-fatal
+          }
+        }
+
         const policy: ChannelPolicy = {
           dmPolicy: 'allowlist',
           groupPolicy: 'mention-only', // kept for type compat, router uses @mention check
           ownerIds: this.gatewayConfig.ownerIds ?? [],
           allowedSenders: this.gatewayConfig.ownerIds ?? [],
           selfId: waPhoneJid,
+          selfIdAliases,
           ...channels.whatsapp.policy,
         };
 
@@ -471,6 +504,17 @@ export class Mach6Gateway {
     await this.httpApi.start();
   }
 
+  // ── Web UI ─────────────────────────────────────────────────────────────
+
+  private startWebUi(): void {
+    const webPort = (this.gatewayConfig as any).webPort ?? 3009;
+    try {
+      this.webServer = startWebServer(webPort);
+    } catch (err) {
+      console.log(warn(`Web UI failed to start — ${(err as Error).message}`));
+    }
+  }
+
   /**
    * Handle an HTTP API chat request by running it through the full agent pipeline.
    * Creates a synthetic BusEnvelope and processes it like any other channel message.
@@ -511,7 +555,7 @@ export class Mach6Gateway {
 
         // Sandbox context — HTTP API users get 'standard' tier (not admin)
         const ownerIds = this.gatewayConfig.ownerIds ?? [];
-        const isOwner = request.senderId ? ownerIds.includes(request.senderId) : false;
+        const isOwner = request.senderId ? (ownerIds.includes('*') || ownerIds.includes(request.senderId)) : false;
         const sandboxCtx: SessionContext = {
           sessionId,
           adapterId: 'http-api',
@@ -524,11 +568,13 @@ export class Mach6Gateway {
 
         // Provider config
         const providerCfg = (this.config.providers as Record<string, any>)[this.providerName] ?? {};
+        const thinkingCfg = (this.config as any).thinking;
         const provConfig = {
           model: this.model,
           maxTokens: this.config.maxTokens,
           temperature: this.config.temperature,
           systemPrompt: this.systemPrompt,
+          ...(thinkingCfg ? { thinking: thinkingCfg } : {}),
           ...providerCfg,
         };
 
@@ -771,7 +817,7 @@ export class Mach6Gateway {
 
     // Build sandbox context for this session
     const ownerIds = this.gatewayConfig.ownerIds ?? [];
-    const isOwner = ownerIds.includes(envelope.source.senderId);
+    const isOwner = ownerIds.includes('*') || ownerIds.includes(envelope.source.senderId);
     const chatType = (envelope.source.chatType === 'channel' || envelope.source.chatType === 'thread' || envelope.source.chatType === 'group' || envelope.source.chatId.includes('@g.') || envelope.metadata.guildId) ? 'group' as const : 'direct' as const;
     const sandboxCtx: SessionContext = {
       sessionId,
@@ -857,11 +903,13 @@ export class Mach6Gateway {
 
       // Provider config
       const providerCfg = (this.config.providers as Record<string, any>)[this.providerName] ?? {};
+      const thinkingCfg = (this.config as any).thinking;
       const provConfig: ProviderConfig = {
         model: this.model,
         maxTokens: this.config.maxTokens,
         temperature: this.config.temperature,
         systemPrompt: this.systemPrompt,
+        ...(thinkingCfg ? { thinking: thinkingCfg } : {}),
         ...providerCfg,
       };
 
@@ -1231,6 +1279,9 @@ export class Mach6Gateway {
 
       // Stop HTTP API
       if (this.httpApi) await this.httpApi.stop();
+
+      // Stop Web UI
+      if (this.webServer) this.webServer.close();
 
       // Disconnect MCP bridges
       for (const bridge of this.mcpBridges) {

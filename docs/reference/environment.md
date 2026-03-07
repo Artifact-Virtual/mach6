@@ -6,9 +6,10 @@ All environment variables used by Mach6. Set these in `.env` (auto-loaded at sta
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GROQ_API_KEY` | If using Groq | Groq API key (`gsk_...`). [Get one →](https://console.groq.com/keys) |
+| `GROQ_API_KEY` | If using Groq | Groq API key (`gsk_...`). [Get one](https://console.groq.com/keys) |
 | `ANTHROPIC_API_KEY` | If using Anthropic | Anthropic API key (`sk-ant-...`) |
 | `OPENAI_API_KEY` | If using OpenAI | OpenAI API key (`sk-...`) |
+| `GEMINI_API_KEY` | If using Gemini | Google Gemini API key (`AIza...`). [Get one](https://aistudio.google.com/apikey) |
 | `XAI_API_KEY` | If using xAI | xAI API key (`xai-...`) |
 | `COPILOT_GITHUB_TOKEN` | No | GitHub Copilot token (auto-resolved if `gh` CLI is authenticated) |
 | `GH_TOKEN` | No | GitHub token (fallback for Copilot) |
@@ -38,10 +39,10 @@ All environment variables used by Mach6. Set these in `.env` (auto-loaded at sta
 
 Environment variables can be set in:
 
-1. **`.env` file** — auto-loaded at startup via built-in dotenv loader (recommended for secrets)
-2. **Shell environment** — `export VAR=value`
-3. **systemd service** — `Environment=VAR=value`
-4. **`mach6.json`** — via `${VAR}` interpolation in string values
+1. **`.env` file** - auto-loaded at startup via built-in dotenv loader (recommended for secrets)
+2. **Shell environment** - `export VAR=value`
+3. **systemd service** - `Environment=VAR=value`
+4. **`mach6.json`** - via `${VAR}` interpolation in string values
 
 `.env` values do not override existing shell environment variables.
 
@@ -49,10 +50,11 @@ Environment variables can be set in:
 
 | Provider | Key Variable | Fallback |
 |----------|-------------|----------|
-| Groq | `GROQ_API_KEY` | None — required |
-| Anthropic | `ANTHROPIC_API_KEY` | None — required |
-| OpenAI | `OPENAI_API_KEY` | None — required |
-| xAI | `XAI_API_KEY` | None — required |
-| GitHub Copilot | `COPILOT_GITHUB_TOKEN` | `GH_TOKEN` → `GITHUB_TOKEN` → `gh auth token` CLI → config files |
+| Groq | `GROQ_API_KEY` | None - required |
+| Anthropic | `ANTHROPIC_API_KEY` | None - required |
+| OpenAI | `OPENAI_API_KEY` | None - required |
+| Gemini | `GEMINI_API_KEY` | None - required |
+| xAI | `XAI_API_KEY` | None - required |
+| GitHub Copilot | `COPILOT_GITHUB_TOKEN` | `GH_TOKEN` > `GITHUB_TOKEN` > `gh auth token` CLI > config files |
 | Ollama | None | No auth needed (local) |
 | Gladius | None | No auth needed (local) |

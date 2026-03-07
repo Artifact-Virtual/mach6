@@ -34,3 +34,24 @@ comb/
 hektor/
 mach6-core/
 mach6.json.bak
+
+# Agent identity files — per-instance, never commit
+IDENTITY.md
+SOUL.md
+USER.md
+AGENTS.md
+HEARTBEAT.md
+
+# Runtime logs
+*.log
+
+# Instance-specific launch scripts
+start.vbs
+scarlet-start.bat
+
+# COMB local data
+.comb/
+
+# Archive/staging (local session data)
+archive/
+staging/

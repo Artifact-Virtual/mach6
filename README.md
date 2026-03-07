@@ -74,8 +74,8 @@ HTTP API             Interrupts
 | **Router** | Policy enforcement, JID normalization, deduplication, interrupt detection, priority classification. |
 | **Message Bus** | Priority queue with interrupt bypass, message coalescing, backpressure management. |
 | **Agent Runner** | Agentic loop — tool calling, context management, abort signals, iteration limits. |
-| **Providers** | Groq, Anthropic, OpenAI, xAI (Grok), GitHub Copilot, Ollama, Gemini, Gladius. Hot-swappable mid-session. |
-| **Tools** | 18+ built-in. File I/O, shell, browser, TTS, memory, process management, messaging. |
+| **Providers** | Groq, Anthropic, OpenAI, Gemini, xAI (Grok), GitHub Copilot, Ollama, Gladius. Hot-swappable mid-session. |
+| **Tools** | 18 built-in. File I/O, shell, browser, TTS, memory, process management, messaging. |
 | **Sessions** | Persistent, labeled, TTL-aware. Sub-agent spawning up to depth 3. |
 
 ---
@@ -150,12 +150,12 @@ One Node.js daemon runs everything — channels, routing, sessions, tools, provi
   "sessionsDir": ".sessions",
 
   "providers": {
-    "groq":           { "baseUrl": "https://api.groq.com/openai" },
-    "anthropic":      {},
-    "openai":         {},
-    "xai":            {},
-    "ollama":         { "baseUrl": "http://127.0.0.1:11434" },
-    "gemini":         {},
+    "groq": { "baseUrl": "https://api.groq.com/openai" },
+    "anthropic": {},
+    "openai": {},
+    "gemini": {},
+    "xai": {},
+    "ollama": { "baseUrl": "http://127.0.0.1:11434" },
     "github-copilot": {},
     "gladius":        { "baseUrl": "http://127.0.0.1:8741" }
   },
@@ -196,11 +196,16 @@ All string values support `${ENV_VAR}` interpolation.
 
 ```bash
 # LLM Providers
-GROQ_API_KEY=gsk_...           # Free tier — https://console.groq.com/keys
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
-XAI_API_KEY=xai-...
-GEMINI_API_KEY=AIza...         # Free tier — https://aistudio.google.com/apikey
+GROQ_API_KEY=gsk_...           # https://console.groq.com/keys (free tier)
+ANTHROPIC_API_KEY=sk-ant-...   # https://console.anthropic.com/
+OPENAI_API_KEY=sk-...          # https://platform.openai.com/api-keys
+GEMINI_API_KEY=AIza...         # https://aistudio.google.com/apikey
+XAI_API_KEY=xai-...            # https://console.x.ai/
+
+# GitHub Copilot — usually automatic via `gh auth login`
+# COPILOT_GITHUB_TOKEN=
+
+# Ollama — no key needed, just run `ollama serve`
 
 # Discord
 DISCORD_BOT_TOKEN=
@@ -215,16 +220,16 @@ MACH6_PORT=3006
 
 ## 🧠 Providers
 
-| Provider | Key | Auth | Notes |
-|----------|-----|------|-------|
-| **Groq** | `groq` | `GROQ_API_KEY` | ⚡ Fastest. Free tier. Start here. |
-| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY` | Claude models |
-| **OpenAI** | `openai` | `OPENAI_API_KEY` | GPT-4o, o3 |
-| **xAI (Grok)** | `xai` | `XAI_API_KEY` | Grok 3, Grok 3 Mini |
-| **GitHub Copilot** | `github-copilot` | Auto (`gh auth login`) | Free with Copilot sub |
-| **Ollama** | `ollama` | None (local) | Any model, fully offline |
-| **Gemini** | `gemini` | `GEMINI_API_KEY` | Native SDK, streaming + thinking |
-| **Gladius** | `gladius` | None (local) | Artifact Virtual's AI kernel |
+| Provider | Config Key | How it authenticates | Speed |
+|----------|-----------|---------------------|-------|
+| **Groq** | `groq` | `GROQ_API_KEY` env var | ⚡ Fastest (LPU hardware) |
+| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY` env var | Fast |
+| **OpenAI** | `openai` | `OPENAI_API_KEY` env var | Fast |
+| **Gemini** | `gemini` | `GEMINI_API_KEY` env var | Fast |
+| **xAI (Grok)** | `xai` | `XAI_API_KEY` env var | Fast |
+| **GitHub Copilot** | `github-copilot` | Auto-resolved (see below) — no API key needed | Moderate |
+| **Ollama** | `ollama` | Local HTTP endpoint — no key needed | Varies (local) |
+| **Gladius** | `gladius` | Local HTTP endpoint | Local |
 
 Providers are hot-swappable mid-session via `/provider` and `/model` commands.
 
@@ -239,6 +244,37 @@ Providers are hot-swappable mid-session via `/provider` and `/model` commands.
 | Llama 3.1 8B | `llama-3.1-8b-instant` | Fastest, lighter tasks |
 
 ### xAI (Grok) models
+
+| Model | Config value | Notes |
+|-------|-------------|-------|
+| Grok 3 | `grok-3` | Strongest reasoning |
+| Grok 3 Fast | `grok-3-fast` | Lower latency |
+| Grok 3 Mini | `grok-3-mini` | Lightweight + think mode |
+| Grok 3 Mini Fast | `grok-3-mini-fast` | Fastest Grok |
+
+### Gemini models
+
+| Model | Config value | Notes |
+|-------|-------------|-------|
+| Gemini 2.5 Pro | `gemini-2.5-pro-preview-05-06` | Strongest reasoning, thinking support |
+| Gemini 2.5 Flash | `gemini-2.5-flash-preview-04-17` | Fast + thinking |
+| Gemini 2.0 Flash | `gemini-2.0-flash` | Fast, general purpose |
+| Gemini 1.5 Pro | `gemini-1.5-pro` | Long context (1M tokens) |
+
+> **Gemini thinking support:** Models with thinking enabled return `thoughtSignature` fields. Mach6 preserves these across tool call roundtrips automatically — required by the Gemini API for thinking-enabled sessions.
+
+### GitHub Copilot token resolution
+
+No API key required if `gh` CLI is installed and authenticated. Token resolves in order:
+
+1. `COPILOT_GITHUB_TOKEN` env var
+2. `~/.copilot-cli-access-token` file
+3. `GH_TOKEN` / `GITHUB_TOKEN` env vars
+4. `~/.config/github-copilot/hosts.json` (Linux/macOS)
+5. `%APPDATA%\github-copilot\hosts.json` (Windows)
+6. `gh auth token` CLI fallback (all platforms)
+
+### Copilot proxy models
 
 | Model | Config value |
 |-------|-------------|
@@ -382,7 +418,9 @@ mach6/
 │   ├── cron/           # Cron budget management
 │   ├── gateway/        # Persistent daemon — signals, hot-reload, turns
 │   ├── heartbeat/      # Activity-aware periodic health checks
-│   ├── providers/      # Groq, Anthropic, OpenAI, xAI, Copilot, Ollama, Gemini, Gladius
+│   ├── memory/         # Index integrity checks
+│   ├── providers/      # LLM providers — Groq, Anthropic, OpenAI, Gemini, xAI, Copilot, Ollama, Gladius
+│   ├── security/       # Input sanitization
 │   ├── sessions/       # Session store, queue, sub-agents
 │   ├── tools/          # 18+ built-in tools, policy engine, MCP bridge
 │   └── web/            # Web UI server (SSE streaming)
@@ -448,14 +486,16 @@ mach6/
 
 ## 📜 Changelog
 
-| Version | Date | What changed |
-|---------|------|-------------|
-| **v1.6.0** | Mar 7, 2026 | Native Gemini, 8 providers, multi-user deployment, agent wizard |
-| **v1.5.0** | Mar 6, 2026 | Blink, Pulse, COMB, 7 providers |
-| **v1.4.0** | Mar 5, 2026 | MCP server, anti-loop, degradation protection |
-| **v1.3.0** | Mar 3, 2026 | Sibling bot yield, ATM |
-| **v1.0.0** | Feb 28, 2026 | Cross-platform, CLI wizard |
-| **v0.1.0** | Feb 22, 2026 | Initial release — built and shipped same day |
+| Date | Milestone |
+|------|----------|
+| **Feb 22, 2026** | Built from scratch. WhatsApp, Discord, gateway, config, tools, sessions. |
+| **Feb 22, 2026** | 14/14 smoke tests. 20 hardening fixes. Flipped to production same day. |
+| **Feb 23, 2026** | Open-sourced. MIT license. |
+| **Feb 28, 2026** | Cross-platform (Windows/Linux/macOS). CLI wizard. v1.0.0. |
+| **Mar 3, 2026** | Multi-bot coordination, ATM, sibling yield. v1.3.0. |
+| **Mar 5, 2026** | MCP server, anti-loop, degradation protection. v1.4.0. |
+| **Mar 6, 2026** | Blink, Pulse, COMB, 7 providers, agent wizard. v1.5.0. |
+| **Mar 7, 2026** | Native Gemini provider, 8 providers, multi-user deployment. v1.6.0. |
 
 ---
 

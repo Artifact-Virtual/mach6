@@ -24,6 +24,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+const __wa_dirname = path.dirname(fileURLToPath(import.meta.url));
 import { BaseAdapter } from '../adapter.js';
 import { formatForChannel } from '../formatter.js';
 import { logInbound, logOutbound, logReaction } from '../message-logger.js';
@@ -146,59 +148,6 @@ export class WhatsAppAdapter extends BaseAdapter {
           console.log(`  QR Data: ${qr}\n`);
         }
         
-        // Save QR as self-contained HTML (no CDN — inline SVG)
-        // Save QR as self-contained HTML file with inline SVG
-        const qrHtmlPath = path.join(process.cwd(), 'whatsapp-qr.html');
-        try {
-          // Dynamic import works in ESM (require doesn't in type:module packages)
-          const QRCode = await import('qrcode');
-          const svgString = await QRCode.toString(qr, { type: 'svg', width: 300, margin: 2 });
-          
-          const qrHtml = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Mach6 — WhatsApp QR</title>
-<style>body{background:#0a0a0f;color:#fff;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0}
-h1{background:linear-gradient(135deg,#8a2be2,#00e5ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:2em}
-p{color:#9e9eaa;margin:8px 0}.qr-box{margin:24px;padding:24px;background:#fff;border-radius:12px;display:inline-block}
-.qr-box svg{display:block}
-.refresh{color:#ffc125;font-size:0.9em;margin-top:16px}</style></head>
-<body><h1>⚡ Mach6</h1><p>Scan this QR code with WhatsApp to link your agent</p>
-<div class="qr-box">${svgString}</div>
-<p class="refresh">QR refreshes every ~30s. Reload this page if expired.</p>
-</body></html>`;
-          
-          fs.writeFileSync(qrHtmlPath, qrHtml);
-          console.log(`  \x1b[38;2;0;230;118m✓\x1b[0m QR saved to: \x1b[38;2;0;229;255m${qrHtmlPath}\x1b[0m`);
-          console.log(`  \x1b[38;2;158;158;168mOpen this file in your browser to scan the QR code.\x1b[0m\n`);
-          
-          // Try to auto-open in default browser (fire and forget)
-          const openCmd = process.platform === 'win32' ? 'start ""' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-          exec(`${openCmd} "${qrHtmlPath}"`, () => {});
-        } catch (err) {
-          // Fallback: embed QR data as text + a tiny inline JS QR renderer
-          console.log(`  \x1b[38;2;255;193;37m⚠\x1b[0m QR SVG generation failed (${err instanceof Error ? err.message : err}), using text fallback`);
-          const qrEscaped = qr.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-          const fallbackHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Mach6 QR</title></head>
-<body style="background:#0a0a0f;color:#fff;font-family:system-ui;text-align:center;padding:40px">
-<h1>⚡ Mach6</h1><p>Scan the QR below, or copy the text into any QR generator app:</p>
-<div id="qr" style="margin:20px auto;display:inline-block;padding:16px;background:#fff;border-radius:12px"></div>
-<br><textarea id="raw" style="width:80%;height:60px;font-size:12px;margin:20px auto;display:block">${qrEscaped}</textarea>
-<p style="color:#ffc125;font-size:0.9em">QR refreshes every ~30s. Reload this page if expired.</p>
-<script>
-// Minimal QR renderer — generates QR from text using canvas
-// Fallback: just show the raw text if script fails
-try{var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js';
-s.onload=function(){QRCode.toCanvas(document.createElement('canvas'),document.getElementById('raw').value,{width:280,margin:2},function(e,c){if(!e)document.getElementById('qr').appendChild(c)})};
-s.onerror=function(){document.getElementById('qr').innerHTML='<p style="color:#ff6b6b">Could not render QR. Copy text above into a QR generator app.</p>'};
-document.head.appendChild(s)}catch(e){}
-</script></body></html>`;
-          try {
-            fs.writeFileSync(qrHtmlPath, fallbackHtml);
-            console.log(`  \x1b[38;2;0;230;118m✓\x1b[0m QR saved (fallback) to: \x1b[38;2;0;229;255m${qrHtmlPath}\x1b[0m\n`);
-            const openCmd = process.platform === 'win32' ? 'start ""' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-            exec(`${openCmd} "${qrHtmlPath}"`, () => {});
-          } catch { /* ignore */ }
-        }
-        
         if (this.onQR) {
           this.onQR(qr);
         }
@@ -208,6 +157,21 @@ document.head.appendChild(s)}catch(e){}
         this.selfJid = this.socket?.user?.id ?? '';
         console.log(`[${this.id}] Connected as ${this.selfJid}`);
         this.health.transition('connected');
+
+        // Auto-open web UI in browser after successful connection (Windows/Mac only — not headless servers)
+        if (process.platform === 'win32' || process.platform === 'darwin') {
+          try {
+            const configPath = path.join(process.cwd(), 'mach6.json');
+            const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            const port = cfg.apiPort ?? 3006;
+            const webUrl = `http://localhost:${port}`;
+            const openCmd = process.platform === 'win32' ? 'start ""' : 'open';
+            console.log(`\n  \x1b[38;2;0;230;118m✓\x1b[0m Opening web UI → \x1b[38;2;0;229;255m${webUrl}\x1b[0m\n`);
+            exec(`${openCmd} "${webUrl}"`, () => {});
+          } catch {
+            // Non-fatal — web UI just won't auto-open
+          }
+        }
       }
 
       if (connection === 'close') {

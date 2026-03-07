@@ -1,64 +1,76 @@
-# Release Notes — v1.2.0
+# Release Notes - v1.6.0
 
-## ⚡ Mach6 v1.2.0 — Multi-Bot Coordination
+## Mach6 v1.6.0 - Native Gemini, 8 Providers, Multi-User Deployment
 
-**Date:** February 28, 2026
+**Date:** March 7, 2026
 
-This release brings battle-tested multi-bot coordination features — sibling awareness, echo loop prevention, and granular channel policies. If you're running multiple agent instances on the same server or Discord guild, this is the upgrade you need.
+This release adds native Google Gemini integration, bringing the total provider count to 8. Plus multi-user deployment support, a de-branded web UI, and self-contained QR pairing.
 
-### Multi-Bot Coordination
+### Native Gemini Provider
 
-🤝 **Sibling Bot Awareness** — Configure `siblingBotIds` so your bots recognize each other. Sibling messages pass through the bot filter instead of being silently dropped, enabling inter-agent communication.
+**Direct SDK integration** - Uses `@google/genai` SDK natively. Not an OpenAI-compatible shim. Full streaming, function calling, and thinking support out of the box.
 
-🔄 **Echo Loop Prevention** — 10-second cooldown between processing sibling messages in the same channel. Conversations breathe naturally instead of spiraling into infinite loops.
+**Thinking support** - Gemini models with thinking enabled return `thoughtSignature` fields. Mach6 automatically preserves these across tool call roundtrips - required by the Gemini API for thinking-enabled sessions. Configure depth via `thinkingBudget` in provider config.
 
-🔀 **Session Isolation** — Route keys now use `adapterId` instead of `channelType`, so sibling bots get separate sessions for the same channel. No more session collisions.
+**Automatic schema adaptation** - Gemini rejects `additionalProperties` in tool schemas. Mach6 strips them automatically so your existing tools work without modification.
 
-### Channel Policies
+**System instructions** - System prompts are passed via Gemini's dedicated `systemInstruction` field, not injected into message history. Cleaner context separation.
 
-🚫 **Ignored Channels** — `ignoredChannels: string[]` completely blocks specific channels. No processing, no response, no session creation.
+### Models
 
-🔇 **Strict-Mention Channels** — `strictMentionChannels: string[]` requires an @mention to trigger response, even from owners. Perfect for observation-only channels where the bot should listen but not speak unless called.
+| Model | Config Value | Notes |
+|-------|-------------|-------|
+| Gemini 2.5 Pro | `gemini-2.5-pro-preview-05-06` | Strongest reasoning, thinking support |
+| Gemini 2.5 Flash | `gemini-2.5-flash-preview-04-17` | Fast + thinking support |
+| Gemini 2.0 Flash | `gemini-2.0-flash` | Fast, general purpose |
+| Gemini 1.5 Pro | `gemini-1.5-pro` | Long context (1M tokens) |
+| Gemini 1.5 Flash | `gemini-1.5-flash` | Budget-friendly |
 
-### Agent Improvements
+### Multi-User Deployment
 
-⚠️ **Graceful Iteration Limits** — When approaching the iteration cap, a warning is injected directly into the LLM context so it can wrap up intelligently instead of hitting a wall mid-thought.
+One Mach6 install can now serve multiple user profiles with isolated workspaces, configs, and sessions. Each user gets their own identity files and conversation history.
 
-🆔 **Message ID Injection** — Each user message now includes `<<message_id=ID>>` metadata, giving the agent the reference it needs for reactions, read receipts, and message deletion.
+### Other Changes
 
-🔧 **Sub-Agent Default** — Max iterations raised from 15 → 25, giving sub-agents enough room to complete real work.
-
-### Security
-
-🛡️ **CVE Fix** — Overrides `undici >=6.23.0` to address GHSA-g9mf-h72j-4rw9 (unbounded decompression chain).
+- **Sandbox wildcard ownerIds** - `"*"` allows open access for testing/demo deployments
+- **De-branded web UI** - agent name and emoji pulled from config, not hardcoded
+- **Self-contained QR HTML** - WhatsApp QR pairing page works without CDN dependencies
+- **Landing page** - `mach6.artifactvirtual.com` with CNAME support
+- **dotenv auto-import** - `.env` files loaded automatically at startup
+- **xAI provider registration** - `xai` was defined but not registered in the provider map. Fixed.
+- **Default provider** - changed from `github-copilot` to `groq` (free, fastest)
+- **Discord chatType detection** - correctly identifies channel vs thread messages
 
 ### Configuration
 
-Add sibling bot support to your `mach6.json`:
-
 ```json
 {
-  "discord": {
-    "enabled": true,
-    "token": "...",
-    "botId": "YOUR_BOT_ID",
-    "siblingBotIds": ["OTHER_BOT_ID"],
-    "policy": {
-      "ignoredChannels": ["CHANNEL_ID"],
-      "strictMentionChannels": ["CHANNEL_ID"]
-    }
+  "providers": {
+    "gemini": {}
   }
 }
 ```
 
+```bash
+# .env
+GEMINI_API_KEY=AIza...    # https://aistudio.google.com/apikey
+```
+
 ### Upgrade Path
 
-Fully backward compatible. Existing configs work unchanged — new fields are optional.
+Fully backward compatible. Existing configs work unchanged.
 
 ```bash
 git pull origin master
 npm install && npm run build
 ```
+
+### Stats
+
+- 8 LLM providers
+- 18+ built-in tools
+- 2 channel adapters + HTTP API
+- 38 documentation files
 
 ---
 

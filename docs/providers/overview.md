@@ -1,6 +1,6 @@
 # Providers Overview
 
-Mach6 supports 7 LLM providers through a unified streaming interface. Providers are hot-swappable mid-session — switch models without losing conversation context.
+Mach6 supports 8 LLM providers through a unified streaming interface. Providers are hot-swappable mid-session — switch models without losing conversation context.
 
 ## Supported Providers
 
@@ -9,6 +9,7 @@ Mach6 supports 7 LLM providers through a unified streaming interface. Providers 
 | [Groq](groq.md) | `groq` | `GROQ_API_KEY` env var | No | ⚡ Fastest |
 | [Anthropic](anthropic.md) | `anthropic` | `ANTHROPIC_API_KEY` env var | No | Fast |
 | [OpenAI](openai.md) | `openai` | `OPENAI_API_KEY` env var | No | Fast |
+| [Gemini](gemini.md) | `gemini` | `GEMINI_API_KEY` env var | No | Fast |
 | [xAI (Grok)](xai.md) | `xai` | `XAI_API_KEY` env var | No | Fast |
 | [GitHub Copilot](github-copilot.md) | `github-copilot` | Auto-resolved from `gh` CLI | No | Moderate |
 | [Ollama](ollama.md) | `ollama` | None (local) | Optional | Varies |
@@ -26,6 +27,7 @@ Register providers in `mach6.json`:
     "groq": { "baseUrl": "https://api.groq.com/openai" },
     "anthropic": {},
     "openai": {},
+    "gemini": {},
     "xai": {},
     "ollama": { "baseUrl": "http://127.0.0.1:11434" },
     "github-copilot": {},

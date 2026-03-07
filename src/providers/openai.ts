@@ -23,11 +23,16 @@ function convertMessages(messages: Message[]): unknown[] {
       out.push({
         role: 'assistant',
         content,
-        tool_calls: msg.tool_calls.map(tc => ({
-          id: tc.id,
-          type: 'function',
-          function: { name: tc.name, arguments: JSON.stringify(tc.input) },
-        })),
+        tool_calls: msg.tool_calls.map(tc => {
+          const call: Record<string, unknown> = {
+            id: tc.id,
+            type: 'function',
+            function: { name: tc.name, arguments: JSON.stringify(tc.input) },
+          };
+          // Preserve provider-specific metadata (e.g. Gemini thought_signature)
+          if (tc.extra) Object.assign(call, tc.extra);
+          return call;
+        }),
       });
       continue;
     }
@@ -88,6 +93,7 @@ async function* streamOpenAI(
   let buffer = '';
   // Track active tool calls by index
   const activeTools = new Map<number, string>(); // index → id
+  const toolExtras = new Map<string, Record<string, unknown>>(); // id → extra metadata (e.g. thought_signature)
 
   while (true) {
     const { done, value } = await reader.read();
@@ -141,7 +147,11 @@ async function* streamOpenAI(
 
           if (tc.id && typeof tc.id === 'string') {
             activeTools.set(idx, tc.id);
-            yield { type: 'tool_use_start', id: tc.id, name: (fn?.name as string) ?? '' };
+            // Capture provider-specific metadata (e.g. Gemini thought_signature)
+            if (tc.extra_content) {
+              toolExtras.set(tc.id, { extra_content: tc.extra_content });
+            }
+            yield { type: 'tool_use_start', id: tc.id, name: (fn?.name as string) ?? '', extra: toolExtras.get(tc.id) };
           }
 
           if (fn?.arguments && typeof fn.arguments === 'string') {
