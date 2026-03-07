@@ -425,6 +425,19 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const body = JSON.parse(await readBody(req));
     const { sessionId, message } = body;
     if (!sessionId || !message) return json(res, { error: 'sessionId and message required' }, 400);
+    // Auto-create server-side session if webchat created it locally
+    if (!sessions.has(sessionId)) {
+      const autoSession: Session = {
+        id: sessionId,
+        name: 'Web Chat',
+        systemPrompt: '',
+        messages: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        tokensUsed: 0,
+      };
+      sessions.set(sessionId, autoSession);
+    }
     return streamChat(res, sessionId, message);
   }
 

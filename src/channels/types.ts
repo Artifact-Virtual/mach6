@@ -249,6 +249,8 @@ export interface ChannelPolicy {
   ownerIds: string[];
   /** Bot's own ID on this platform (REQUIRED for @mention detection) */
   selfId?: string;
+  /** Alternate IDs for the same bot (e.g. WhatsApp LID alongside phone JID) */
+  selfIdAliases?: string[];
   /** Channel IDs to completely ignore — no processing, no response, no session creation */
   ignoredChannels?: string[];
   // ── Day 21: Mention-Only Protocol ──────────────────────────────────

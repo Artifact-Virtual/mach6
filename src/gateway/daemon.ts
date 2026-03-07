@@ -66,6 +66,7 @@ import type { BusEnvelope, ChannelPolicy, OutboundMessage } from '../channels/ty
 import { formatForChannel } from '../channels/formatter.js';
 import { createSandboxedRegistry, type SessionContext } from '../tools/sandbox.js';
 import { HttpApiServer, type ChatRequest, type ChatResponse } from '../web/http-api.js';
+import { startWebServer } from '../web/server.js';
 import { McpBridge } from '../tools/mcp-bridge.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -144,6 +145,7 @@ export class Mach6Gateway {
   private pulseBudget: PulseBudgetManager;
   private startTime = Date.now();
   private httpApi: HttpApiServer | null = null;
+  private webServer: import('node:http').Server | null = null;
   private mcpBridges: McpBridge[] = [];
   /** Per-adapter system prompt file overrides (adapterId → file list) */
   private adapterPromptFiles = new Map<string, { path: string; label: string }[]>();
@@ -292,6 +294,9 @@ export class Mach6Gateway {
     // Start HTTP API server
     await this.startHttpApi();
 
+    // Start Web UI server (bound to 0.0.0.0 for LAN access)
+    this.startWebUi();
+
     const elapsed = Date.now() - this.startTime;
     console.log();
     console.log(divider());
@@ -415,12 +420,29 @@ export class Mach6Gateway {
         const waPhoneJid = channels.whatsapp.phoneNumber
           ? `${channels.whatsapp.phoneNumber}@s.whatsapp.net`
           : undefined;
+
+        // Resolve LID alias for mention detection (WhatsApp uses LID in group mentions)
+        const selfIdAliases: string[] = [];
+        if (channels.whatsapp.phoneNumber && channels.whatsapp.authDir) {
+          try {
+            const lidMapPath = path.join(channels.whatsapp.authDir, `lid-mapping-${channels.whatsapp.phoneNumber}.json`);
+            const lidNum = JSON.parse(fs.readFileSync(lidMapPath, 'utf-8'));
+            if (lidNum) {
+              selfIdAliases.push(`${lidNum}@lid`);
+              console.log(info(`WhatsApp LID alias: ${lidNum}@lid`));
+            }
+          } catch {
+            // LID mapping file may not exist yet — non-fatal
+          }
+        }
+
         const policy: ChannelPolicy = {
           dmPolicy: 'allowlist',
           groupPolicy: 'mention-only', // kept for type compat, router uses @mention check
           ownerIds: this.gatewayConfig.ownerIds ?? [],
           allowedSenders: this.gatewayConfig.ownerIds ?? [],
           selfId: waPhoneJid,
+          selfIdAliases,
           ...channels.whatsapp.policy,
         };
 
@@ -480,6 +502,17 @@ export class Mach6Gateway {
     });
 
     await this.httpApi.start();
+  }
+
+  // ── Web UI ─────────────────────────────────────────────────────────────
+
+  private startWebUi(): void {
+    const webPort = (this.gatewayConfig as any).webPort ?? 3009;
+    try {
+      this.webServer = startWebServer(webPort);
+    } catch (err) {
+      console.log(warn(`Web UI failed to start — ${(err as Error).message}`));
+    }
   }
 
   /**
@@ -1246,6 +1279,9 @@ export class Mach6Gateway {
 
       // Stop HTTP API
       if (this.httpApi) await this.httpApi.stop();
+
+      // Stop Web UI
+      if (this.webServer) this.webServer.close();
 
       // Disconnect MCP bridges
       for (const bridge of this.mcpBridges) {
