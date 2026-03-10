@@ -18,6 +18,9 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 // @ts-ignore — no types for qrcode-terminal
 import qrcode from 'qrcode-terminal';
+
+// Voice middleware — auto-transcribe inbound voice notes, generate voice replies
+import { processVoiceInbound, generateVoiceReply, cleanupVoiceFile } from '../voice/voice-middleware.js';
 // Use global process (don't import — it shadows signal handlers)
 import {
   palette, gradient, versionBanner, kvLine, ok, warn, info,
@@ -44,6 +47,7 @@ import { ttsTool } from '../tools/builtin/tts.js';
 import { webFetchTool } from '../tools/builtin/web-fetch.js';
 import { memorySearchTool } from '../tools/builtin/memory.js';
 import { combRecallTool, combStageTool, getNativeCombStore } from '../tools/builtin/comb.js';
+import { vdbSearchTool, vdbIngestTool, vdbStatsTool } from '../tools/builtin/memory-vdb.js';
 import { createSpawnTool, createSubAgentStatusTool } from '../tools/builtin/spawn.js';
 import { SubAgentManager } from '../sessions/sub-agent.js';
 import { createMessageTool, createTypingTool, createPresenceTool, createDeleteMessageTool, createMarkReadTool } from '../tools/builtin/message.js';
@@ -191,6 +195,7 @@ export class Mach6Gateway {
         readTool, writeTool, editTool, execTool, imageTool,
         processStartTool, processPollTool, processKillTool, processListTool,
         ttsTool, webFetchTool, memorySearchTool, combRecallTool, combStageTool,
+        vdbSearchTool, vdbIngestTool, vdbStatsTool,
       ]) {
         this.toolRegistry.register(tool);
       }
@@ -878,8 +883,17 @@ export class Mach6Gateway {
         session.messages.unshift({ role: 'system', content: turnPrompt });
       }
 
-      // Add user message
-      const userContent = this.buildUserContent(envelope);
+      // Add user message (with voice transcription if applicable)
+      let userContent = this.buildUserContent(envelope);
+      
+      // Voice middleware: auto-transcribe voice/PTT messages
+      const voiceResult = await processVoiceInbound(envelope);
+      if (voiceResult && !voiceResult.isEmpty) {
+        // Replace media descriptor with transcript — agent sees text, not a file path
+        userContent = userContent.replace(/\[voice,.*?\]/, `[🎤 voice message, ${voiceResult.duration}s]`);
+        userContent += `\n\n${voiceResult.text}`;
+      }
+      
       session.messages.push({ role: 'user', content: userContent });
 
       // Pre-flight context trim: estimate token count and archive if approaching limit
@@ -894,6 +908,16 @@ export class Mach6Gateway {
         console.log(`${palette.dim}  [gateway]${palette.reset} ${palette.yellow}⚠${palette.reset} Pre-flight trim: ~${estimatedTokens} tokens ${palette.dim}(limit ${TOKEN_LIMIT})${palette.reset}`);
         const archived = this.sessionManager.archive(sessionId, 30);
         console.log(`${palette.dim}  [gateway]${palette.reset} Archived ${archived} messages → ${session.messages.length} remaining`);
+        // Feed archived messages to VDB for persistent memory
+        try {
+          const { VectorDB, ingestSessions } = await import("../memory/vdb.js");
+          const vdb = new VectorDB(process.env.MACH6_WORKSPACE ?? process.cwd());
+          const archiveDir = path.join(this.config.sessionsDir ?? ".sessions", "archive");
+          if (fs.existsSync(archiveDir)) {
+            const result = ingestSessions(vdb, archiveDir);
+            if (result.indexed > 0) console.log(`${palette.dim}  [vdb]${palette.reset} Ingested ${result.indexed} new memories from archive`);
+          }
+        } catch { /* non-fatal */ }
         // Reload session after archive
         const trimmed = this.sessionManager.load(sessionId);
         if (trimmed) {
@@ -1075,14 +1099,55 @@ export class Mach6Gateway {
 
         console.log(`${palette.dim}  [send]${palette.reset} → ${envelope.source.adapterId}/${envelope.source.chatId} ${palette.dim}(${responseText.length} chars)${palette.reset}`);
         try {
-          const sendResult = await this.channelRegistry.send(
-            envelope.source.adapterId,
-            envelope.source.chatId,
-            {
-              content: responseText,
-              replyToId: envelope.metadata.platformMessageId,
-            },
-          );
+          // Voice middleware: if original message was voice, send voice reply
+          if ((envelope as any)._isVoice && envelope.source.channelType === 'whatsapp') {
+            console.log(`${palette.dim}  [voice]${palette.reset} Generating voice reply...`);
+            const voicePath = await generateVoiceReply(responseText);
+            if (voicePath) {
+              // Send voice note
+              await this.channelRegistry.send(
+                envelope.source.adapterId,
+                envelope.source.chatId,
+                {
+                  content: '',
+                  media: [{
+                    type: 'voice' as any,
+                    mimeType: 'audio/ogg; codecs=opus',
+                    path: voicePath,
+                  }],
+                  replyToId: envelope.metadata.platformMessageId,
+                },
+              );
+              console.log(`${palette.dim}  [voice]${palette.reset} ${palette.green}voice reply sent${palette.reset}`);
+              // Also send text for accessibility
+              await this.channelRegistry.send(
+                envelope.source.adapterId,
+                envelope.source.chatId,
+                { content: responseText },
+              );
+              cleanupVoiceFile(voicePath);
+            } else {
+              // TTS failed — fall back to text only
+              console.log(`${palette.dim}  [voice]${palette.reset} ${palette.yellow}TTS failed, sending text only${palette.reset}`);
+              await this.channelRegistry.send(
+                envelope.source.adapterId,
+                envelope.source.chatId,
+                {
+                  content: responseText,
+                  replyToId: envelope.metadata.platformMessageId,
+                },
+              );
+            }
+          } else {
+            const sendResult = await this.channelRegistry.send(
+              envelope.source.adapterId,
+              envelope.source.chatId,
+              {
+                content: responseText,
+                replyToId: envelope.metadata.platformMessageId,
+              },
+            );
+          }
           console.log(`${palette.dim}  [send]${palette.reset} ${palette.green}delivered${palette.reset}`);
         } catch (sendErr) {
           console.error(`  ${palette.red}✗ [send]${palette.reset} ${sendErr}`);
@@ -1379,6 +1444,7 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
       promptFiles: extra.promptFiles,
     })),
     apiPort: (config as any).apiPort ?? 3006,
+    webPort: (config as any).webPort ?? 3009,
   };
 
   const gateway = new Mach6Gateway(gatewayConfig);
