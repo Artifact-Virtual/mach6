@@ -106,6 +106,8 @@ interface GatewayConfig {
   ownerIds?: string[];
   /** HTTP API port */
   apiPort?: number;
+  /** Web UI port */
+  webPort?: number;
 }
 
 interface ActiveTurn {
@@ -155,6 +157,10 @@ export class Mach6Gateway {
   private adapterPromptFiles = new Map<string, { path: string; label: string }[]>();
   /** Fallback provider chain — tried in order if primary fails */
   private fallbackChain: { name: string; provider: Provider }[] = [];
+  /** VDB Pulse — real-time memory indexing every 5s */
+  private vdbWatermarks = new Map<string, number>();
+  private vdbPulseTimer: ReturnType<typeof setInterval> | null = null;
+  private vdbInstance: import('../memory/vdb.js').VectorDB | null = null;
 
   constructor(gatewayConfig: GatewayConfig) {
     this.gatewayConfig = gatewayConfig;
@@ -302,6 +308,9 @@ export class Mach6Gateway {
     // Start Web UI server (bound to 0.0.0.0 for LAN access)
     this.startWebUi();
 
+    // Start VDB real-time memory pulse (5s incremental indexing)
+    this.startVdbPulse();
+
     const elapsed = Date.now() - this.startTime;
     console.log();
     console.log(divider());
@@ -310,6 +319,96 @@ export class Mach6Gateway {
     console.log();
   }
 
+
+  // ── VDB Pulse — Real-time memory indexing ────────────────────────────
+
+  /** Start VDB pulse — indexes new messages every 5 seconds */
+  private startVdbPulse(): void {
+    const VDB_PULSE_MS = 5_000;
+
+    this.vdbPulseTimer = setInterval(() => {
+      if (this.shutdownRequested) return;
+      this.vdbPulseFlush().catch(() => { /* non-fatal */ });
+    }, VDB_PULSE_MS);
+
+    // Dont block process exit
+    if (this.vdbPulseTimer.unref) this.vdbPulseTimer.unref();
+    console.log(`${palette.dim}  [vdb]${palette.reset} Pulse active — indexing every ${VDB_PULSE_MS / 1000}s`);
+  }
+
+  /** Flush new messages from all active sessions to VDB */
+  private async vdbPulseFlush(): Promise<void> {
+    try {
+      // Lazy-init VDB
+      if (!this.vdbInstance) {
+        const { VectorDB } = await import("../memory/vdb.js");
+        this.vdbInstance = new VectorDB(process.env.MACH6_WORKSPACE ?? process.cwd());
+      }
+
+      const sessions = this.sessionManager.list();
+      let totalIndexed = 0;
+
+      for (const summary of sessions) {
+        // Only process sessions with new messages since last flush
+        const watermark = this.vdbWatermarks.get(summary.id) ?? 0;
+        if (summary.messageCount <= watermark) continue;
+
+        const session = this.sessionManager.load(summary.id);
+        if (!session) continue;
+
+        // Index only messages after the watermark
+        const newMessages = session.messages.slice(watermark);
+        let indexed = 0;
+
+        for (const msg of newMessages) {
+          if (msg.role === "system") continue;
+          if (msg.role === "tool") continue;
+          if ((msg as any).tool_calls?.length) continue;
+          const text = typeof msg.content === "string" ? msg.content?.trim() : "";
+          if (!text || text.length < 15) continue;
+
+          let source = "session";
+          if (summary.id.includes("whatsapp") || summary.id.includes("@")) source = "whatsapp";
+          else if (summary.id.includes("discord")) source = "discord";
+          else if (summary.id.includes("http") || summary.id.includes("web")) source = "webchat";
+
+          const indexText = text.length > 2000 ? text.slice(0, 2000) : text;
+          const wasIndexed = this.vdbInstance.index({
+            id: "",
+            text: indexText,
+            source,
+            role: msg.role,
+            timestamp: Date.now(),
+            sessionId: summary.id,
+          });
+          if (wasIndexed) indexed++;
+        }
+
+        this.vdbWatermarks.set(summary.id, session.messages.length);
+        totalIndexed += indexed;
+      }
+
+      if (totalIndexed > 0) {
+        console.log(`${palette.dim}  [vdb]${palette.reset} Pulse: +${totalIndexed} memories indexed`);
+      }
+
+      this.vdbInstance.checkIdle();
+    } catch {
+      // Non-fatal — VDB pulse is best-effort
+    }
+  }
+
+  /** Stop VDB pulse */
+  private stopVdbPulse(): void {
+    if (this.vdbPulseTimer) {
+      clearInterval(this.vdbPulseTimer);
+      this.vdbPulseTimer = null;
+    }
+    if (this.vdbInstance) {
+      this.vdbInstance.evict();
+      this.vdbInstance = null;
+    }
+  }
   // ── MCP Servers ────────────────────────────────────────────────────────
 
   private async connectMcpServers(): Promise<void> {
@@ -1354,6 +1453,7 @@ export class Mach6Gateway {
       }
 
       presenceManager.stopAll();
+      this.stopVdbPulse();
       this.heartbeat.stop();
       console.log(`${palette.dim}  [gateway]${palette.reset} Shutdown complete.`);
       process.exit(0);

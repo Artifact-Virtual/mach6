@@ -100,9 +100,41 @@ class NativeCombStore {
 
     fs.writeFileSync(filePath, JSON.stringify(entries, null, 2));
 
+    // Queue for HEKTOR ingestion (sidecar file, daemon merges on next cycle)
+    this.queueForHektor(text, date);
+
     // Auto-rollup: if > 10 entries for today, roll up
     if (entries.length > 10) {
       this.rollup(date);
+    }
+  }
+
+  /** Queue staged text for HEKTOR BM25 ingestion via sidecar file */
+  private queueForHektor(text: string, date: string): void {
+    try {
+      const ws = getWorkspace();
+      // Try common HEKTOR memory locations
+      const memoryDirs = [
+        path.join(ws, '.ava-memory'),
+        path.join(ws, '..', '.ava-memory'),
+      ];
+      
+      for (const memDir of memoryDirs) {
+        if (!fs.existsSync(memDir)) continue;
+        
+        const pendingPath = path.join(memDir, 'comb-pending.jsonl');
+        const entry = JSON.stringify({
+          text,
+          date,
+          timestamp: new Date().toISOString(),
+          source: 'comb-stage-native',
+        });
+        
+        fs.appendFileSync(pendingPath, entry + '\n');
+        return; // Written to first available location
+      }
+    } catch {
+      // Non-fatal — COMB still has the data, HEKTOR catches up later
     }
   }
 

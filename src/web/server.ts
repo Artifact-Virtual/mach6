@@ -192,7 +192,8 @@ async function streamChat(
   try {
     // Proxy to real HTTP API (port 3006) which runs through the actual agent pipeline
     const apiPort = parseInt(process.env.MACH6_API_PORT ?? '3006', 10);
-    const payload = JSON.stringify({ sessionId, message: userMessage });
+    const apiKey = process.env.MACH6_API_KEY ?? '';
+    const payload = JSON.stringify({ sessionId, message: userMessage, senderId: 'webchat-owner', source: 'webchat' });
 
     const apiRes = await new Promise<http.IncomingMessage>((resolve, reject) => {
       const apiReq = http.request({
@@ -203,6 +204,7 @@ async function streamChat(
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(payload),
+          'Authorization': `Bearer ${apiKey}`,
         },
         timeout: 300000, // 5 min timeout for long agent runs
       }, resolve);

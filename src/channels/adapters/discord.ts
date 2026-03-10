@@ -371,6 +371,16 @@ export class DiscordAdapter extends BaseAdapter {
       if ('send' in channel) return channel as any;
       return null;
     } catch {
+      // channels.fetch failed — chatId might be a user ID, try creating a DM
+      try {
+        const user = await this.client.users.fetch(chatId);
+        if (user) {
+          const dm = await user.createDM();
+          if (dm && 'send' in dm) return dm as any;
+        }
+      } catch {
+        // Not a valid user ID either
+      }
       return null;
     }
   }
