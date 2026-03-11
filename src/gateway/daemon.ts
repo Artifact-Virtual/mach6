@@ -109,6 +109,8 @@ interface GatewayConfig {
   apiPort?: number;
   /** Web UI port */
   webPort?: number;
+  /** Web UI host (default 127.0.0.1, use 0.0.0.0 for LAN access) */
+  webHost?: string;
 }
 
 interface ActiveTurn {
@@ -1570,6 +1572,7 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
     })),
     apiPort: (config as any).apiPort ?? 3006,
     webPort: (config as any).webPort ?? 3009,
+    webHost: (config as any).webHost ?? '127.0.0.1',
   };
 
   const gateway = new Mach6Gateway(gatewayConfig);
