@@ -74,6 +74,9 @@ import { createSandboxedRegistry, type SessionContext } from '../tools/sandbox.j
 import { HttpApiServer, type ChatRequest, type ChatResponse } from '../web/http-api.js';
 import { startWebServer } from '../web/server.js';
 import { McpBridge } from '../tools/mcp-bridge.js';
+import { MetricsCollector, getMetrics } from '../metrics/collector.js';
+import { HotResumeManager } from '../sessions/hot-resume.js';
+import { ProviderHealthMonitor } from '../providers/health.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -168,6 +171,13 @@ export class SymbioteGateway {
   private vdbPulseTimer: ReturnType<typeof setInterval> | null = null;
   private vdbInstance: import('../memory/vdb.js').VectorDB | null = null;
 
+  /** v2.0 — Metrics collector: tokens, latency, tools, errors */
+  private metrics: MetricsCollector;
+  /** v2.0 — Hot resume: persist and restore session state across restarts */
+  private hotResume: HotResumeManager;
+  /** v2.0 — Provider health: circuit breaker, latency tracking, health states */
+  private providerHealth: ProviderHealthMonitor;
+
   constructor(gatewayConfig: GatewayConfig) {
     this.gatewayConfig = gatewayConfig;
     this.config = loadConfig(gatewayConfig.configPath);
@@ -230,6 +240,23 @@ export class SymbioteGateway {
 
     // Sessions
     this.sessionManager = new SessionManager(this.config.sessionsDir);
+
+    // v2.0 — Metrics collector
+    this.metrics = getMetrics({
+      metricsDir: path.join(this.config.sessionsDir ?? '.sessions', 'metrics'),
+      version: '2.0.0',
+    });
+
+    // v2.0 — Provider health monitor (circuit breaker + latency tracking)
+    this.providerHealth = new ProviderHealthMonitor();
+
+    // v2.0 — Hot resume manager (session state persistence across restarts)
+    this.hotResume = new HotResumeManager({
+      sessionsDir: this.config.sessionsDir ?? '.sessions',
+      version: '2.0.0',
+      provider: this.providerName,
+      model: this.model,
+    });
 
     // Context Monitor — proactive context management
     // Thresholds: warn 65%, compact 75%, emergency 88%
@@ -339,6 +366,9 @@ export class SymbioteGateway {
     // Start VDB real-time memory pulse (5s incremental indexing)
     this.startVdbPulse();
 
+    // v2.0 — Hot Resume: restore previous session state
+    this.restoreHotState();
+
     const elapsed = Date.now() - this.startTime;
     console.log();
     console.log(divider());
@@ -347,6 +377,25 @@ export class SymbioteGateway {
     console.log();
   }
 
+
+  // ── v2.0 Hot Resume ──────────────────────────────────────────────────
+
+  private restoreHotState(): void {
+    try {
+      const state = HotResumeManager.restore(this.config.sessionsDir ?? '.sessions');
+      if (!state) return;
+      
+      const resumable = this.hotResume.getResumableSessions(state, 60);
+      if (resumable.length > 0) {
+        console.log(`${palette.dim}  [hot-resume]${palette.reset} Restored ${resumable.length} session(s) from previous run (${state.reason})`);
+        for (const s of resumable) {
+          console.log(`${palette.dim}    → ${s.sessionId} (${s.channelType}/${s.chatId})${palette.reset}`);
+        }
+      }
+    } catch {
+      // Non-fatal — hot resume is best-effort
+    }
+  }
 
   // ── VDB Pulse — Real-time memory indexing ────────────────────────────
 
@@ -949,6 +998,19 @@ export class SymbioteGateway {
 
     this.activeTurns.set(sessionId, turn);
 
+    // v2.0 — Track session for hot resume
+    this.hotResume.trackSession({
+      sessionId,
+      channelType: envelope.source.channelType,
+      adapterId: envelope.source.adapterId,
+      chatId: envelope.source.chatId,
+      lastSenderId: envelope.source.senderId,
+      wasActive: true,
+      provider: this.providerName,
+      model: this.model,
+    });
+    this.metrics.recordTurn();
+
     // Build sandbox context for this session
     const ownerIds = this.gatewayConfig.ownerIds ?? [];
     const isOwner = ownerIds.includes('*') || ownerIds.includes(envelope.source.senderId);
@@ -1107,10 +1169,24 @@ export class SymbioteGateway {
       // Helper: run agent with fallback chain
       const runWithFallback = async (msgs: typeof currentSessionMessages): Promise<Awaited<ReturnType<typeof runAgent>>> => {
         try {
-          return await runAgent(msgs, makeRunOpts(this.provider, provConfig));
+          const turnStartTime = Date.now();
+          const result = await runAgent(msgs, makeRunOpts(this.provider, provConfig));
+          // v2.0 — Record provider success metrics
+          this.providerHealth.recordSuccess(this.providerName, Date.now() - turnStartTime);
+          return result;
         } catch (primaryErr) {
+          // v2.0 — Record primary provider failure
+          this.providerHealth.recordFailure(this.providerName, primaryErr instanceof Error ? primaryErr.message : String(primaryErr));
+          this.metrics.recordProviderError(this.providerName, primaryErr instanceof Error ? primaryErr.message : String(primaryErr));
+
           // Try each fallback provider in order
           for (const fb of this.fallbackChain) {
+            // v2.0 — Skip providers with open circuit breaker
+            if (!this.providerHealth.isAvailable(fb.name)) {
+              console.log(`${palette.dim}  [fallback]${palette.reset} ${palette.red}${fb.name} circuit open${palette.reset} — skipping`);
+              continue;
+            }
+
             console.log(`${palette.dim}  [fallback]${palette.reset} ${palette.yellow}Primary ${this.providerName} failed${palette.reset}: ${primaryErr instanceof Error ? primaryErr.message : primaryErr}`);
             console.log(`${palette.dim}  [fallback]${palette.reset} Trying ${palette.cyan}${fb.name}${palette.reset}...`);
             try {
@@ -1122,11 +1198,16 @@ export class SymbioteGateway {
                 systemPrompt: this.systemPrompt,
                 ...fbCfg,
               };
+              const fbStartTime = Date.now();
               const result = await runAgent(msgs, makeRunOpts(fb.provider, fbProvConfig));
               console.log(`${palette.dim}  [fallback]${palette.reset} ${palette.green}${fb.name} succeeded${palette.reset}`);
+              // v2.0 — Record fallback success
+              this.providerHealth.recordSuccess(fb.name, Date.now() - fbStartTime);
               return result;
             } catch (fbErr) {
               console.log(`${palette.dim}  [fallback]${palette.reset} ${palette.red}${fb.name} also failed${palette.reset}: ${fbErr instanceof Error ? fbErr.message : fbErr}`);
+              // v2.0 — Record fallback failure
+              this.providerHealth.recordFailure(fb.name, fbErr instanceof Error ? fbErr.message : String(fbErr));
               // Continue to next fallback
             }
           }
@@ -1486,6 +1567,11 @@ export class SymbioteGateway {
       presenceManager.stopAll();
       this.stopVdbPulse();
       this.heartbeat.stop();
+
+      // v2.0 — Save session state for hot resume + flush metrics
+      this.hotResume.shutdown();
+      this.metrics.flush();
+
       console.log(`${palette.dim}  [gateway]${palette.reset} Shutdown complete.`);
       process.exit(0);
     };
@@ -1529,13 +1615,34 @@ export class SymbioteGateway {
 
   status() {
     return {
+      version: '2.0.0',
       uptime: Date.now() - this.startTime,
+      uptimeHuman: this.formatUptime(Date.now() - this.startTime),
       provider: `${this.providerName}/${this.model}`,
       channels: this.channelRegistry.list(),
       activeTurns: this.activeTurns.size,
       sessions: this.sessionManager.list().length,
       tools: this.toolRegistry.list().length,
+      // v2.0 additions
+      providerHealth: this.providerHealth.getAllHealth(),
+      metrics: this.metrics.snapshot(),
+      memory: {
+        rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        heap: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      },
+      pid: process.pid,
     };
+  }
+
+  private formatUptime(ms: number): string {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    const h = Math.floor(m / 60);
+    const d = Math.floor(h / 24);
+    if (d > 0) return `${d}d ${h % 24}h ${m % 60}m`;
+    if (h > 0) return `${h}h ${m % 60}m`;
+    if (m > 0) return `${m}m ${s % 60}s`;
+    return `${s}s`;
   }
 }
 

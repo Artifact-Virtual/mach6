@@ -1,46 +1,56 @@
 # Changelog
 
-## v2.0.0 — Symbiote (2026-03-11)
+## v2.0.0 — Birthday Release (2026-03-12)
 
-### Rebrand
-- Mach6 -> Symbiote across all source, configs, UI, boot messages, docs
-- Package name: symbiote
-- Boot banner: SYMBIOTE v2.0.0
+Ali's 38th birthday. The version number earned, not bumped.
 
-### Web Automation Suite (14 new tools)
-- Browser engine: Python Playwright sidecar with JSON-RPC over stdin/stdout
-- 14 tools: web_browse, web_click, web_type, web_screenshot, web_extract, web_scroll, web_wait, web_session, web_tab_open, web_tab_switch, web_tab_close, web_tabs, web_download, web_upload
-- Persistent browser profiles with AES-256 encrypted cookies
-- Multi-tab management
-- Smart text extraction (Readability pipeline, 4000 token cap)
-- Screenshot pipeline
-- Cookie banner auto-dismissal
-- Sidecar launches lazily, closes after 5min idle (zero idle cost)
-- Credentials never enter LLM context
+### 🔧 Provider Health Monitor — Circuit Breaker + Intelligent Failover
+- **Circuit breaker pattern:** Providers that fail 3× consecutively are automatically disabled for 60s cooldown
+- **Latency-aware routing:** Tracks moving average latency per provider, prefers faster ones when all healthy
+- **Auto-recovery:** Half-open probes after cooldown, full recovery after 2 consecutive successes
+- **Health states:** healthy → degraded → unhealthy → circuit-open (with automatic state transitions)
+- **Fallback chain integration:** Circuit-open providers are skipped during failover — no wasted retries
+- File: `src/providers/health.ts` (202 lines)
 
-### Memory
-- VDB: BM25 + TF-IDF hybrid search engine (450 lines)
-- 10-second real-time indexing pulse
-- 3 tools: memory_recall, memory_ingest, memory_stats
-- COMB -> HEKTOR vectorization sidecar (no more memory loss)
+### 🔥 Session Hot Resume — Survive Restarts
+- **Session state persistence:** Active session metadata saved to disk every 60s
+- **Graceful shutdown capture:** On SIGTERM/SIGINT, all active sessions marked and saved
+- **Startup restoration:** Previous session state restored on boot with age validation (24h expiry)
+- **Zero-loss restarts:** Gateway restarts no longer lose conversation context registration
+- File: `src/sessions/hot-resume.ts` (193 lines)
 
-### Webchat
-- Complete UI overhaul: dark glass aesthetic, Inter + JetBrains Mono
-- Markdown rendering (tables, code blocks, blockquotes)
-- Session sidebar with time-grouped conversations
-- Copy-to-clipboard on code blocks
-- Mobile responsive with slide-out sidebar
-- Animated welcome orb
+### 📊 Metrics Collector — Runtime Observability
+- **Provider metrics:** Call count, error count, token usage (in/out), latency histograms (p50/p90/p99)
+- **Tool metrics:** Per-tool call frequency, latency, error rates
+- **Session metrics:** Turn count, active sessions tracking
+- **Ring buffer design:** Bounded memory, automatic eviction of old samples
+- **Persistent:** Auto-flush to JSON every 5 minutes + shutdown flush
+- **Zero dependencies:** Pure Node.js stdlib, non-blocking fire-and-forget recording
+- File: `src/metrics/collector.ts` (466 lines)
+
+### 🏥 Enhanced Health Endpoint
+- `GET /api/v1/health` now returns comprehensive gateway status:
+  - Version, uptime (human-readable), PID
+  - Provider health states (circuit breaker status per provider)
+  - Metrics snapshot (tokens, latency, errors)
+  - Memory usage (RSS + heap in MB)
+  - Active turns, session count, tool count, connected channels
 
 ### Infrastructure
-- maxTokens raised 8192 -> 16384 across all providers
-- LAN-accessible webchat via webHost config
-- UTF-8 BOM stripping for Windows config compatibility
+- Symbiote rebrand (v1.7 → v2.0 naming)
+- IPC Identity (HMAC-SHA256 inter-agent authentication)
+- Web Automation Suite (14 browser tools via Playwright sidecar)
+- VDB embedded vector database with 5s real-time indexing pulse
+- Voice middleware (Whisper transcription + MeloTTS generation)
+- Webchat dark glass UI overhaul
 - One-command installer (bash + PowerShell)
+- UTF-8 BOM stripping for Windows config compatibility
 
-### Tool Count
-- v1.x: 17 tools
-- v2.0.0: 31 tools
+### By the Numbers
+- **Total source:** ~19,000 lines TypeScript
+- **Built-in tools:** 31
+- **Providers:** 8 (Anthropic, OpenAI, GitHub Copilot, Gemini, Groq, Ollama, xAI, GLADIUS)
+- **New v2.0 code:** 861 lines across 3 new modules
 
 ---
 
@@ -49,16 +59,18 @@
 ### Features
 - VDB persistent memory engine
 - 10-second real-time indexing pulse
-- COMB -> HEKTOR vectorization sidecar
+- COMB → HEKTOR vectorization sidecar
+- Context Monitor (proactive context management)
 
 ---
 
 ## v1.6.0 (2026-03-08)
 
 ### Features
-- Provider chain with circuit-breaker failover
+- Provider fallback chain
 - Session archival and context windowing
 - WhatsApp Web integration
+- Webchat visual overhaul
 
 ---
 
