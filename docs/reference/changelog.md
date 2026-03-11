@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.7.0 — Embedded VDB, Voice Pipeline, Webchat, Context Monitor (2026-03-11)
+
+### Features
+- **VDB — Embedded persistent memory** — zero-dependency embedded database with BM25 + TF-IDF hybrid search. JSONL append-only storage, lazy loading, idle eviction, crash-safe. Real-time 5-second pulse indexes new messages incrementally. Session archive auto-ingestion. Three new tools: `memory_recall`, `memory_ingest`, `memory_stats`.
+- **Voice pipeline** — transparent voice support. Inbound voice notes auto-transcribed via faster-whisper STT. Outbound voice replies generated via Edge TTS (6 voices). Agent sees plain text — voice handling is fully transparent.
+- **Web UI overhaul** — dark glass aesthetic, session sidebar, streaming responses with tool call visualization, latency badges, live config panel, sub-agent monitoring. Separate `webPort` configuration (default: 3009). Mobile responsive.
+- **Context monitor** — real-time token tracking with progressive thresholds (70% warn, 80% auto-compact, 90% emergency flush). COMB integration for pre-compaction staging. Transcript save on emergency.
+- **DM support** — direct message handling across all channels.
+- **IPC Identity** — HMAC-SHA256 signed inter-process communication for verified agent identity in multi-agent deployments.
+
+### Improvements
+- **Tool count:** 18 → 24 (added `memory_recall`, `memory_ingest`, `memory_stats`, `tts`, `subagent_status`, `mark_read`)
+- **Provider count:** 8 (Groq, Anthropic, OpenAI, Gemini, xAI, GitHub Copilot, Ollama, Gladius)
+- **Web UI port separation** — `webPort` config key separates webchat from the HTTP API port
+- **BOOTSTRAP.md prompt file** — context monitor now loads operational protocol from `BOOTSTRAP.md` if present in workspace
+
+### Stats
+- ~17,000 lines of TypeScript
+- 76 source files
+- 24 built-in tools
+- 8 LLM providers
+- 2 channel adapters + HTTP API + Web UI
+- 37+ documentation files
+
+---
+
 ## v1.6.0 — Native Gemini, 8 Providers, Multi-User Deployment (2026-03-07)
 
 ### Features

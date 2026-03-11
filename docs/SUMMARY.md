@@ -15,6 +15,9 @@
 * [Message Bus](core/message-bus.md)
 * [Agent Runner](core/agent-runner.md)
 * [Sessions](core/sessions.md)
+* [VDB — Embedded Memory](core/vdb.md)
+* [Voice Pipeline](core/voice.md)
+* [Context Monitor](core/context-monitor.md)
 * [Blink — Seamless Continuation](core/blink.md)
 * [Pulse — Adaptive Budget](core/pulse.md)
 * [COMB — Memory Persistence](core/comb.md)
@@ -25,6 +28,7 @@
 
 * [Discord](channels/discord.md)
 * [WhatsApp](channels/whatsapp.md)
+* [Web UI (Webchat)](channels/webchat.md)
 * [HTTP API](channels/http-api.md)
 
 ## Providers
