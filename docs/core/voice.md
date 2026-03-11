@@ -1,6 +1,6 @@
 # Voice Pipeline
 
-Transparent voice support for Mach6 agents. Voice messages are auto-transcribed on input and optionally synthesized on output. The agent doesn't need to know about audio formats.
+Transparent voice support for Symbiote agents. Voice messages are auto-transcribed on input and optionally synthesized on output. The agent doesn't need to know about audio formats.
 
 ## How It Works
 

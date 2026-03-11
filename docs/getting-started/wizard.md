@@ -5,7 +5,7 @@ Interactive CLI wizard for first-time setup. Generates all configuration and ide
 ## Usage
 
 ```bash
-npx mach6 init
+npx symbiote init
 ```
 
 Or from source:

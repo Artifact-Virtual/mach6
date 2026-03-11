@@ -1,50 +1,27 @@
-# Mach6
+# Symbiote
 
-**AI agent framework. Single process. Any machine.**
+**Autonomous AI agent gateway with web automation. Single process. Any machine.**
 
-Mach6 is a persistent daemon that connects messaging platforms, LLM providers, and tool execution into a single agentic loop — with real-time interrupts, message coalescing, and sub-agent orchestration.
+Symbiote is a self-contained AI agent gateway that handles multi-channel communication, persistent memory, web browsing, and tool execution from a single TypeScript process.
 
-No Docker. No Redis. No cloud dependencies. **Your machine, your data, your keys.**
+## Key Capabilities
 
-## Key Features
+- **31 tools** including 14 web automation tools
+- **Multi-channel**: Discord, WhatsApp, webchat, HTTP API
+- **Web automation**: Playwright-powered browsing with encrypted profiles
+- **Persistent memory**: VDB engine with BM25 + TF-IDF hybrid search
+- **Provider chain**: Multiple LLM providers with circuit-breaker failover
+- **Zero external deps**: No Docker, no Redis, no database server
 
-- **8 LLM providers** — Groq (default, free tier), Anthropic, OpenAI, Gemini, xAI (Grok), GitHub Copilot, Ollama (local), Gladius. Hot-swappable mid-session.
-- **Real-time interrupts** — say "stop" and the agent stops. Immediately.
-- **Message coalescing** — three rapid messages become one coherent request
-- **Blink** — seamless iteration budget continuation. The wall doesn't exist.
-- **Pulse** — adaptive iteration budget. Starts small, grows when needed.
-- **VDB** — embedded persistent memory with BM25 + TF-IDF hybrid search. Real-time indexing.
-- **Voice pipeline** — transparent voice note transcription (STT) and voice reply generation (TTS).
-- **Web UI** — dark glass aesthetic, session management, streaming with tool visualization.
-- **COMB** — lossless session-to-session memory. Zero external dependencies.
-- **Agent creation wizard** — interactive setup with identity scaffolding
-- **Discord + WhatsApp + HTTP API + Web UI + CLI**
-- **24 built-in tools** — file I/O, shell, browser, TTS, memory, messaging, sub-agents
-- **Sub-agent spawning** — up to depth 3
-- **Activity-aware heartbeat** — adapts to user presence
-- **Cross-platform** — Windows, Linux, macOS. CPU-only, no GPU required.
+## Documentation
 
-## Quick Links
+- [Quick Start](getting-started/quick-start.md) — up and running in 5 minutes
+- [Installation](getting-started/installation.md) — detailed setup guide
+- [Configuration](core/configuration.md) — all config options
+- [Tools Reference](tools/README.md) — all 31 tools documented
+- [Web Automation](tools/web-automation.md) — browsing suite deep dive
+- [Channels](channels/README.md) — Discord, WhatsApp, webchat, HTTP
+- [Architecture](advanced/architecture.md) — system design
+- [Providers](providers/README.md) — LLM provider configuration
 
-- [Installation →](getting-started/installation.md)
-- [Quick Start →](getting-started/quick-start.md)
-- [Setup Wizard →](getting-started/wizard.md)
-- [Architecture →](core/architecture.md)
-- [Providers →](providers/overview.md)
-- [GitHub](https://github.com/Artifact-Virtual/mach6)
-- [npm](https://www.npmjs.com/package/mach6-core)
-
-## What You Can Build
-
-| Use Case | How |
-|----------|-----|
-| Personal AI assistant | Discord bot + WhatsApp, always-on daemon |
-| Development copilot | CLI REPL with file/exec tools, persistent sessions |
-| Multi-agent system | Sub-agent spawning with depth control |
-| Enterprise chatbot | HTTP API + tool policy engine + session management |
-| Multi-platform bridge | Same agent identity across Discord, WhatsApp, and HTTP |
-| Local-first agent | Ollama + local tools, zero cloud dependency |
-
----
-
-Built by [Artifact Virtual](https://artifactvirtual.com). v1.7.0. MIT License.
+Built by [Artifact Virtual](https://artifactvirtual.com). v2.0.0.

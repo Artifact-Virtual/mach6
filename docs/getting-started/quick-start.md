@@ -5,7 +5,7 @@ Get a working agent in under 2 minutes.
 ## 1. Initialize
 
 ```bash
-npx mach6 init
+npx symbiote init
 ```
 
 The [interactive wizard](wizard.md) walks you through 6 steps:
@@ -86,7 +86,7 @@ This gives you a CLI agent with file tools, shell access, and web fetch — no D
 
 ## Windows
 
-Same commands. Mach6 is fully cross-platform:
+Same commands. Symbiote is fully cross-platform:
 
 ```powershell
 node dist\gateway\daemon.js --config=mach6.json

@@ -51,7 +51,7 @@ At 90%, the monitor takes aggressive action:
 2. **Hard truncate** — only the system prompt and last 10 messages are kept
 3. **Notice injected** — a marker message tells the agent that earlier context was flushed
 
-The default transcript directory is `$TMPDIR/mach6-transcripts`.
+The default transcript directory is `$TMPDIR/symbiote-transcripts`.
 
 ## Configuration
 
@@ -72,7 +72,7 @@ const monitor = new ContextMonitor({
 | `warnThreshold` | `0.7` | Usage ratio to trigger warning |
 | `compactThreshold` | `0.8` | Usage ratio to trigger compaction |
 | `emergencyThreshold` | `0.9` | Usage ratio to trigger emergency flush |
-| `transcriptDir` | `$TMPDIR/mach6-transcripts` | Where to save emergency transcripts |
+| `transcriptDir` | `$TMPDIR/symbiote-transcripts` | Where to save emergency transcripts |
 
 ## Usage
 

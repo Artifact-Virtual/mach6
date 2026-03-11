@@ -7,7 +7,7 @@ node dist/index.js --config=mach6.json
 ```
 
 ```
-Mach6 v1.7.0 | groq/llama-3.3-70b-versatile | session: default
+Symbiote v1.7.0 | groq/llama-3.3-70b-versatile | session: default
 Tools (24): read, write, edit, exec, image, web_fetch, tts, ...
 Type /help for commands
 
@@ -17,7 +17,7 @@ Type /help for commands
 ## Setup Wizard
 
 ```bash
-npx mach6 init
+npx symbiote init
 ```
 
 Interactive 6-step wizard that generates `mach6.json`, `.env`, and optionally agent identity files (SOUL.md, IDENTITY.md, USER.md, AGENTS.md, HEARTBEAT.md). See [Wizard docs](../getting-started/wizard.md) for details.

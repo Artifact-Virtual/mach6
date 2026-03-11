@@ -1,6 +1,6 @@
 # Web UI (Webchat)
 
-Built-in web interface for interacting with your Mach6 agent directly from a browser. No build step, no frontend framework — one static HTML file.
+Built-in web interface for interacting with your Symbiote agent directly from a browser. No build step, no frontend framework — one static HTML file.
 
 ## Access
 

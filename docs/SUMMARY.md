@@ -46,6 +46,7 @@
 ## Tools
 
 * [Built-in Tools](tools/built-in.md)
+* [Web Automation](tools/web-automation.md)
 * [Tool Policy Engine](tools/policy.md)
 * [MCP Bridge](tools/mcp-bridge.md)
 

@@ -1,6 +1,6 @@
 # Environment Variables
 
-All environment variables used by Mach6. Set these in `.env` (auto-loaded at startup) or your shell environment.
+All environment variables used by Symbiote. Set these in `.env` (auto-loaded at startup) or your shell environment.
 
 ## LLM Providers
 

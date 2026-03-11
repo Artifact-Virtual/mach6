@@ -59,6 +59,6 @@ Each conversation tracks:
 
 ## Design Philosophy
 
-Mach6 was built for long-running autonomous tasks — code generation, research, multi-step workflows. A hard iteration wall is an artificial constraint that fragments work. Blink removes that constraint while maintaining safety (via `maxDepth`) and observability (via checkpoints and state tracking).
+Symbiote was built for long-running autonomous tasks — code generation, research, multi-step workflows. A hard iteration wall is an artificial constraint that fragments work. Blink removes that constraint while maintaining safety (via `maxDepth`) and observability (via checkpoints and state tracking).
 
 > Ported from Singularity's cortex/blink.py — same philosophy, TypeScript runtime.

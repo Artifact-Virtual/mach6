@@ -1,6 +1,6 @@
 # Multi-Bot Coordination
 
-Mach6 supports running multiple bot instances in the same Discord server without echo loops or duplicate responses.
+Symbiote supports running multiple bot instances in the same Discord server without echo loops or duplicate responses.
 
 ## Sibling Bot IDs
 

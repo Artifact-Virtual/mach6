@@ -973,6 +973,15 @@ export class SymbioteGateway {
     // Do NOT auto mark-read here. The agent calls mark_read explicitly
     // per message, which preserves unread badges / notifications on the
     // user's phone. Auto-read was eating Ali's notifications (Day 27).
+    // UPDATE (Day 44): Mark read immediately on receipt (before LLM turn) so Ali
+    // sees blue ticks right away. Agent still calls mark_read per message for
+    // any messages it receives mid-session, but this covers the first receipt.
+    if (envelope.source.channelType === 'whatsapp' && envelope.metadata.platformMessageId) {
+      const waAdapter = this.channelRegistry.get(envelope.source.adapterId);
+      if (waAdapter && typeof (waAdapter as any).markRead === 'function') {
+        (waAdapter as any).markRead(envelope.source.chatId, envelope.metadata.platformMessageId).catch(() => {});
+      }
+    }
 
     // Start sustained typing (refreshes every 20s for WA, 8s for Discord)
     const typingTarget = { adapterId: envelope.source.adapterId, chatId: envelope.source.chatId };

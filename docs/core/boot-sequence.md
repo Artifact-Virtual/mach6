@@ -1,6 +1,6 @@
 # Boot Sequence
 
-Mach6 starts with a structured boot sequence. Each step runs in order with a timeout. Non-critical steps degrade gracefully instead of crashing.
+Symbiote starts with a structured boot sequence. Each step runs in order with a timeout. Non-critical steps degrade gracefully instead of crashing.
 
 ## Default Steps
 

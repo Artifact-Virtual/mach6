@@ -1,6 +1,6 @@
 # Architecture
 
-Mach6 is a single-process agent framework. Every component — channels, routing, sessions, tools, providers, memory, voice, and the web UI — runs in one Node.js daemon.
+Symbiote is a single-process agent framework. Every component — channels, routing, sessions, tools, providers, memory, voice, and the web UI — runs in one Node.js daemon.
 
 ## Data Flow
 
@@ -92,7 +92,7 @@ No microservices. No message queues. No container orchestration. One `node` proc
 Channels aren't bolted on — they're the entry point. The bus, router, and priority system exist because real-time messaging demands them. Request-response is a special case, not the default.
 
 ### Local-First
-No cloud dependencies at runtime. Mach6 runs on your hardware with your keys. Provider failover means you can fall back to a local LLM (Gladius) if cloud providers are unavailable.
+No cloud dependencies at runtime. Symbiote runs on your hardware with your keys. Provider failover means you can fall back to a local LLM (Gladius) if cloud providers are unavailable.
 
 ### Platform-Native
 Each channel adapter uses the platform's native SDK (discord.js, Baileys) with full feature access. No lowest-common-denominator flattening — Discord embeds, WhatsApp reactions, and HTTP streaming all work natively.
@@ -100,7 +100,7 @@ Each channel adapter uses the platform's native SDK (discord.js, Baileys) with f
 ## Project Structure
 
 ```
-mach6/
+symbiote/
 ├── src/
 │   ├── agent/          # Runner, context manager, system prompt builder, context monitor
 │   ├── boot/           # Boot sequence & validation
@@ -124,7 +124,7 @@ mach6/
 ├── web/                # Web UI (single HTML file)
 ├── mach6.example.json  # Example config
 ├── .env.example        # Example environment variables
-├── mach6.sh            # Linux/macOS start script
-├── mach6.ps1           # Windows start script
-└── mach6-gateway.service  # systemd unit file
+├── symbiote.sh            # Linux/macOS start script
+├── symbiote.ps1           # Windows start script
+└── symbiote-gateway.service  # systemd unit file
 ```

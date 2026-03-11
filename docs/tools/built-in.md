@@ -1,6 +1,6 @@
 # Built-in Tools
 
-Mach6 ships with 24 built-in tools available to the agent. Tools are sandboxed per-session via the [policy engine](policy.md).
+Symbiote ships with 31 built-in tools available to the agent. Tools are sandboxed per-session via the [policy engine](policy.md).
 
 ## File System
 
@@ -233,4 +233,40 @@ Actions: `status` (check progress), `list` (all sub-agents), `kill` (terminate),
 | Session Memory | `comb_recall`, `comb_stage` | 2 |
 | Communication | `message`, `typing`, `presence`, `delete_message`, `mark_read` | 5 |
 | Agent | `spawn`, `subagent_status` | 2 |
-| **Total** | | **24** |
+
+## Web Automation (14 tools)
+
+| Tool | Description |
+|------|-------------|
+| `web_browse` | Navigate to URL, extract page content |
+| `web_click` | Click element by CSS selector or text |
+| `web_type` | Type into input fields |
+| `web_screenshot` | Capture page as image |
+| `web_extract` | Extract content by CSS selector |
+| `web_scroll` | Scroll viewport |
+| `web_wait` | Wait for element or navigation |
+| `web_session` | Switch browser profile |
+| `web_tab_open` | Open new browser tab |
+| `web_tab_switch` | Switch between tabs |
+| `web_tab_close` | Close current tab |
+| `web_tabs` | List all open tabs |
+| `web_download` | Save downloaded file |
+| `web_upload` | Upload file to input |
+
+See [Web Automation](web-automation.md) for full documentation including profiles, encryption, and security model.
+
+## Updated Summary
+
+| Category | Tools | Count |
+|----------|-------|-------|
+| File System | `read`, `write`, `edit` | 3 |
+| Shell | `exec` | 1 |
+| Process | `process_start`, `process_poll`, `process_kill`, `process_list` | 4 |
+| Web & Media | `web_fetch`, `image`, `tts` | 3 |
+| Web Automation | `web_browse`, `web_click`, `web_type`, `web_screenshot`, `web_extract`, `web_scroll`, `web_wait`, `web_session`, `web_tab_open`, `web_tab_switch`, `web_tab_close`, `web_tabs`, `web_download`, `web_upload` | 14 |
+| Memory (VDB) | `memory_recall`, `memory_ingest`, `memory_stats` | 3 |
+| Memory (HEKTOR) | `memory_search` | 1 |
+| Session Memory | `comb_recall`, `comb_stage` | 2 |
+| Communication | `message`, `typing`, `presence`, `delete_message`, `mark_read` | 5 |
+| Agent | `spawn`, `subagent_status` | 2 |
+| **Total** | | **38** |
