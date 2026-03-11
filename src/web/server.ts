@@ -537,8 +537,8 @@ export function startWebServer(port = 3006): http.Server {
   };
   sessions.set(defaultSession.id, defaultSession);
 
-  server.listen(port, '0.0.0.0', () => {
-    console.log(ok(`Web UI → ${palette.cyan}http://0.0.0.0:${port}${palette.reset}`));
+  server.listen(port, '127.0.0.1', () => {
+    console.log(ok(`Web UI → ${palette.cyan}http://127.0.0.1:${port}${palette.reset}`));
   });
 
   return server;
