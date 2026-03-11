@@ -55,3 +55,4 @@ scarlet-start.bat
 # Archive/staging (local session data)
 archive/
 staging/
+web/index.html.bak

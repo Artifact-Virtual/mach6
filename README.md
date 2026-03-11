@@ -9,9 +9,9 @@
 [![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-green.svg)](https://nodejs.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
-[![v1.6.0](https://img.shields.io/badge/version-1.6.0-orange.svg)](https://github.com/Artifact-Virtual/mach6/releases/tag/v1.6.0)
+[![v1.7.0](https://img.shields.io/badge/version-1.7.0-orange.svg)](https://github.com/Artifact-Virtual/mach6/releases/tag/v1.7.0)
 
-A persistent daemon that connects messaging platforms, LLM providers, and tool execution into a single agentic loop. Real-time interrupts. Seamless continuation. Session-to-session memory. No Docker. No Redis. No cloud dependencies.
+A persistent daemon that connects messaging platforms, LLM providers, and tool execution into a single agentic loop. Real-time interrupts. Seamless continuation. Session-to-session memory. Embedded persistent memory. Voice pipeline. No Docker. No Redis. No cloud dependencies.
 
 **Your machine. Your data. Your keys.**
 
@@ -61,22 +61,24 @@ cp .env.example .env
 
 ```
 Channels → Router → Message Bus → Agent Runner → LLM Provider
-  ↑                      ↑
-Discord              Priority Queue
-WhatsApp             Coalescing
+  ↑                      ↑              ↑
+Discord              Priority Queue    VDB
+WhatsApp             Coalescing     (persistent memory)
 HTTP API             Interrupts
-                     Backpressure
+Web UI               Backpressure
 ```
 
 | Layer | What it does |
 |-------|-------------|
-| **Channels** | Discord (discord.js), WhatsApp (Baileys v7), HTTP API. Adapter pattern — add any platform. |
+| **Channels** | Discord (discord.js), WhatsApp (Baileys v7), HTTP API, Web UI. Adapter pattern — add any platform. |
 | **Router** | Policy enforcement, JID normalization, deduplication, interrupt detection, priority classification. |
 | **Message Bus** | Priority queue with interrupt bypass, message coalescing, backpressure management. |
 | **Agent Runner** | Agentic loop — tool calling, context management, abort signals, iteration limits. |
 | **Providers** | Groq, Anthropic, OpenAI, Gemini, xAI (Grok), GitHub Copilot, Ollama, Gladius. Hot-swappable mid-session. |
-| **Tools** | 18 built-in. File I/O, shell, browser, TTS, memory, process management, messaging. |
+| **Tools** | 24 built-in. File I/O, shell, browser, TTS, memory, process management, messaging, sub-agents. |
 | **Sessions** | Persistent, labeled, TTL-aware. Sub-agent spawning up to depth 3. |
+| **VDB** | Embedded persistent memory — BM25 + TF-IDF hybrid search. Zero dependencies. |
+| **Voice** | Auto-transcribe inbound voice notes, generate voice replies. |
 
 ---
 
@@ -115,6 +117,27 @@ Built into the engine. Zero external dependencies — no Python, no Redis, no da
 - **Auto-flush** — conversation tail saves automatically on shutdown
 
 If a Python COMB stack exists (enterprise deployments), the native version delegates to it transparently.
+
+### Embedded Memory (VDB)
+
+Zero-dependency embedded vector database for persistent, searchable memory across all conversations.
+
+- **BM25 + TF-IDF hybrid search** with cosine similarity scoring
+- **JSONL append-only storage** — lazy load, idle eviction, crash-safe
+- **Real-time 5s pulse** — indexes new messages incrementally as conversations happen
+- **Session archive auto-ingestion** — past sessions become searchable memory automatically
+- Three tools expose it to the agent:
+  - **`memory_recall`** — search persistent memory by query
+  - **`memory_ingest`** — bootstrap memory from session archives
+  - **`memory_stats`** — database statistics and health
+
+### Voice Pipeline
+
+Transparent voice support — the agent doesn't need to know about audio formats.
+
+- **Inbound:** Voice notes are auto-transcribed via faster-whisper STT. The agent sees plain text.
+- **Outbound:** Voice replies generated via sovereign TTS (Edge TTS, 6 voices). Sent as audio messages automatically.
+- **Transparent to the agent** — voice messages appear as text in the conversation, voice replies are sent when the agent uses the TTS tool.
 
 ### Message Coalescing
 
@@ -186,7 +209,8 @@ One Node.js daemon runs everything — channels, routing, sessions, tools, provi
     }
   },
 
-  "apiPort": 3006
+  "apiPort": 3006,
+  "webPort": 3009       // Web UI port (default: 3009)
 }
 ```
 
@@ -263,7 +287,7 @@ Providers are hot-swappable mid-session via `/provider` and `/model` commands.
 
 > **Gemini thinking support:** Models with thinking enabled return `thoughtSignature` fields. Mach6 preserves these across tool call roundtrips automatically — required by the Gemini API for thinking-enabled sessions.
 
-### GitHub Copilot token resolution
+### GitHub Copilot
 
 No API key required if `gh` CLI is installed and authenticated. Token resolves in order:
 
@@ -274,26 +298,7 @@ No API key required if `gh` CLI is installed and authenticated. Token resolves i
 5. `%APPDATA%\github-copilot\hosts.json` (Windows)
 6. `gh auth token` CLI fallback (all platforms)
 
-### Copilot proxy models
-
-| Model | Config value |
-|-------|-------------|
-| Grok 3 | `grok-3` |
-| Grok 3 Fast | `grok-3-fast` |
-| Grok 3 Mini | `grok-3-mini` |
-
-### GitHub Copilot (no API key needed)
-
-Token auto-resolves from `gh auth login`. Proxy models include Claude Opus 4.6, Claude Sonnet 4, GPT-4o, o3-mini.
-
-### Gemini models
-
-| Model | Config value | Notes |
-|-------|-------------|-------|
-| Gemini 2.0 Flash | `gemini-2.0-flash` | Fast, multimodal (default) |
-| Gemini 2.0 Flash Thinking | `gemini-2.0-flash-thinking-exp` | Extended thinking |
-| Gemini 1.5 Pro | `gemini-1.5-pro` | Long context (1M tokens) |
-| Gemini 1.5 Flash | `gemini-1.5-flash` | Fast, free tier |
+Proxy models include Claude Opus 4.6, Claude Sonnet 4, GPT-4o, o3-mini, Grok 3.
 
 ### Ollama
 
@@ -306,7 +311,7 @@ ollama pull qwen3:4b
 
 ## 🛠 Tools
 
-18 built-in tools available to every agent:
+24 built-in tools available to every agent:
 
 | Tool | Description |
 |------|------------|
@@ -318,6 +323,9 @@ ollama pull qwen3:4b
 | `web_fetch` | Fetch URLs, strip HTML |
 | `tts` | Text-to-speech (Edge TTS, 6 voices) |
 | `memory_search` | Hybrid BM25 + vector search over indexed files |
+| `memory_recall` | Search persistent memory (VDB) |
+| `memory_ingest` | Bootstrap memory from session archives |
+| `memory_stats` | VDB statistics and health |
 | `comb_recall` | Recall persistent memory from last session |
 | `comb_stage` | Stage information for next session |
 | `message` | Send messages, media, reactions to any channel |
@@ -328,7 +336,9 @@ ollama pull qwen3:4b
 | `process_start` | Start background processes |
 | `process_poll` | Poll process output |
 | `process_kill` | Kill processes |
+| `process_list` | List background processes |
 | `spawn` | Spawn sub-agents (up to depth 3) |
+| `subagent_status` | Check/manage sub-agents |
 
 Tools are sandboxed per-session via the policy engine. MCP bridge available for external tool servers.
 
@@ -336,13 +346,16 @@ Tools are sandboxed per-session via the policy engine. MCP bridge available for 
 
 ## 🖥 Web UI
 
-Built-in at `http://localhost:3006`:
+Built-in at `http://localhost:3009` (configurable via `webPort`):
 
-- Session management (create, switch, delete)
-- Streaming responses with real-time tool call visualization
+- **Dark glass aesthetic** with responsive layout
+- **Session sidebar** — create, switch, delete sessions
+- **Streaming responses** with real-time tool call visualization and streaming dots
+- **Latency badge** — live provider response time
+- **Markdown rendering** with syntax highlighting
+- **Mobile responsive** — works on phones and tablets
 - Live config panel (provider, model, temperature, API keys)
 - Sub-agent monitoring
-- Rich rendering for file reads, exec output, fetches
 
 No build step. One static HTML file.
 
@@ -418,11 +431,12 @@ mach6/
 │   ├── cron/           # Cron budget management
 │   ├── gateway/        # Persistent daemon — signals, hot-reload, turns
 │   ├── heartbeat/      # Activity-aware periodic health checks
-│   ├── memory/         # Index integrity checks
+│   ├── memory/         # VDB — embedded persistent memory engine
 │   ├── providers/      # LLM providers — Groq, Anthropic, OpenAI, Gemini, xAI, Copilot, Ollama, Gladius
 │   ├── security/       # Input sanitization
 │   ├── sessions/       # Session store, queue, sub-agents
-│   ├── tools/          # 18+ built-in tools, policy engine, MCP bridge
+│   ├── tools/          # 24 built-in tools, policy engine, MCP bridge
+│   ├── voice/          # Voice middleware — STT + TTS pipeline
 │   └── web/            # Web UI server (SSE streaming)
 ├── web/                # Web UI (single HTML file)
 ├── mach6.example.json
@@ -441,6 +455,8 @@ mach6/
 | **Blink** | Seamless iteration budget continuation — no hard walls |
 | **Pulse** | Adaptive budget: 20 → 100 on demand, auto-reverts |
 | **COMB** | Lossless session-to-session memory, zero dependencies |
+| **VDB** | Embedded persistent memory — hybrid search, real-time pulse indexing |
+| **Voice pipeline** | Auto-transcribe voice notes, generate voice replies |
 | **Config validation** | Human-readable diagnostics at boot |
 | **Context monitor** | Progressive warnings at 70/80/90% |
 | **Priority queue** | Real messages never drop, only background signals shed |
@@ -461,11 +477,11 @@ mach6/
 
 | | |
 |--|--|
-| TypeScript source | ~15,000+ lines |
-| Source files | 70+ |
-| Built-in tools | 18+ |
+| TypeScript source | ~17,000 lines |
+| Source files | 76 |
+| Built-in tools | 24 |
 | LLM providers | 8 |
-| Channel adapters | 2 + HTTP API |
+| Channel adapters | 2 + HTTP API + Web UI |
 | Documentation files | 37 |
 | Cold boot → connected | ~2.3s |
 | Runtime dependencies | Node.js only |
@@ -488,14 +504,15 @@ mach6/
 
 | Date | Milestone |
 |------|----------|
+| **Mar 11, 2026** | Embedded VDB, voice pipeline, webchat overhaul, DM support. v1.7.0. |
+| **Mar 7, 2026** | Native Gemini provider, 8 providers, multi-user deployment. v1.6.0. |
+| **Mar 6, 2026** | Blink, Pulse, COMB, 7 providers, agent wizard. v1.5.0. |
+| **Mar 5, 2026** | MCP server, anti-loop, degradation protection. v1.4.0. |
+| **Mar 3, 2026** | Multi-bot coordination, ATM, sibling yield. v1.3.0. |
+| **Feb 28, 2026** | Cross-platform (Windows/Linux/macOS). CLI wizard. v1.0.0. |
+| **Feb 23, 2026** | Open-sourced. MIT license. |
 | **Feb 22, 2026** | Built from scratch. WhatsApp, Discord, gateway, config, tools, sessions. |
 | **Feb 22, 2026** | 14/14 smoke tests. 20 hardening fixes. Flipped to production same day. |
-| **Feb 23, 2026** | Open-sourced. MIT license. |
-| **Feb 28, 2026** | Cross-platform (Windows/Linux/macOS). CLI wizard. v1.0.0. |
-| **Mar 3, 2026** | Multi-bot coordination, ATM, sibling yield. v1.3.0. |
-| **Mar 5, 2026** | MCP server, anti-loop, degradation protection. v1.4.0. |
-| **Mar 6, 2026** | Blink, Pulse, COMB, 7 providers, agent wizard. v1.5.0. |
-| **Mar 7, 2026** | Native Gemini provider, 8 providers, multi-user deployment. v1.6.0. |
 
 ---
 

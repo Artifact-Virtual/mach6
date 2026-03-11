@@ -23,6 +23,7 @@ const WORKSPACE_FILES = [
   { path: 'IDENTITY.md',   label: 'Identity',          required: false },
   { path: 'USER.md',       label: 'About the User',    required: false },
   { path: 'AGENTS.md',     label: 'Operating Protocol', required: false },
+  { path: 'BOOTSTRAP.md',  label: 'Operational DNA',    required: false },
   { path: 'TOOLS.md',      label: 'Tool Notes',        required: false },
   { path: 'HEARTBEAT.md',  label: 'Heartbeat Config',  required: false },
   { path: 'WORKFLOW_AUTO.md', label: 'Active Workflows', required: false },

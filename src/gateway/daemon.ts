@@ -54,6 +54,7 @@ import { createMessageTool, createTypingTool, createPresenceTool, createDeleteMe
 import { SessionManager } from '../sessions/manager.js';
 import { buildSystemPrompt } from '../agent/system-prompt.js';
 import { runAgent } from '../agent/runner.js';
+import { ContextMonitor } from '../agent/context-monitor.js';
 import { PulseBudgetManager } from '../agent/pulse.js';
 import { BlinkController } from '../agent/blink.js';
 import { loadConfig, type Mach6Config } from '../config/config.js';
@@ -157,6 +158,8 @@ export class Mach6Gateway {
   private adapterPromptFiles = new Map<string, { path: string; label: string }[]>();
   /** Fallback provider chain — tried in order if primary fails */
   private fallbackChain: { name: string; provider: Provider }[] = [];
+  /** Context monitor — proactive context management (warn/compact/emergency) */
+  private contextMonitor: ContextMonitor;
   /** VDB Pulse — real-time memory indexing every 5s */
   private vdbWatermarks = new Map<string, number>();
   private vdbPulseTimer: ReturnType<typeof setInterval> | null = null;
@@ -221,6 +224,25 @@ export class Mach6Gateway {
 
     // Sessions
     this.sessionManager = new SessionManager(this.config.sessionsDir);
+
+    // Context Monitor — proactive context management
+    // Thresholds: warn 65%, compact 75%, emergency 88%
+    const ws = this.config.workspace;
+    this.contextMonitor = new ContextMonitor({
+      maxContextTokens: 180_000,  // ~200K context, leave headroom
+      warnThreshold: 0.65,
+      compactThreshold: 0.75,
+      emergencyThreshold: 0.88,
+      transcriptDir: path.join(ws || '.', '.sessions', 'transcripts'),
+      onCombStage: async (content: string) => {
+        try {
+          const store = getNativeCombStore(ws);
+          store.stage(content, 'context-monitor');
+        } catch (e) {
+          console.error('[context-monitor] COMB stage failed:', e);
+        }
+      },
+    });
 
     // System prompt (base — rebuilt per-message with channel context)
     this.systemPrompt = buildSystemPrompt({
@@ -697,6 +719,7 @@ export class Mach6Gateway {
             toolRegistry: sandboxedTools,
             sessionId,
             maxIterations: this.pulseBudget.getEffectiveCap(),
+            contextMonitor: this.contextMonitor,
             blinkController: blinkCtrl,
             abortSignal: controller.signal,
             onEvent: (ev) => {
@@ -1051,6 +1074,7 @@ export class Mach6Gateway {
         toolRegistry: sandboxedTools,
         sessionId,
         maxIterations: this.pulseBudget.getEffectiveCap(),
+        contextMonitor: this.contextMonitor,
         blinkController: blinkCtrl,
         abortSignal: controller.signal,
         onEvent: (ev: any) => {
