@@ -1,4 +1,4 @@
-// Mach6 — GitHub Copilot proxy provider
+// Symbiote — GitHub Copilot proxy provider
 // Uses the copilot token exchange flow: GitHub PAT → copilot session token → OpenAI-compat API
 
 import fs from 'node:fs';

@@ -1,5 +1,5 @@
 /**
- * Mach6 Voice Middleware
+ * Symbiote Voice Middleware
  * 
  * Intercepts voice/PTT messages in the gateway pipeline:
  * - Inbound: auto-transcribes voice notes → injects text for the agent

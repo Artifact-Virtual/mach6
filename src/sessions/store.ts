@@ -1,4 +1,4 @@
-// Mach6 — Session persistence (JSON files) — legacy compatibility wrapper
+// Symbiote — Session persistence (JSON files) — legacy compatibility wrapper
 // Phase 2 uses SessionManager instead, but this remains for backward compat
 
 import fs from 'node:fs';

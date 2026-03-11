@@ -1,10 +1,10 @@
 /**
- * Mach6 — Gateway Daemon
+ * Symbiote — Gateway Daemon
  * 
  * The persistent process. Manages channel lifecycle, agent sessions,
  * signal handling, graceful shutdown, and hot-reload.
  * 
- * Mach6 AI Gateway — persistent engine.
+ * Symbiote AI Gateway — persistent engine.
  */
 import 'dotenv/config';
 
@@ -48,6 +48,7 @@ import { webFetchTool } from '../tools/builtin/web-fetch.js';
 import { memorySearchTool } from '../tools/builtin/memory.js';
 import { combRecallTool, combStageTool, getNativeCombStore } from '../tools/builtin/comb.js';
 import { vdbSearchTool, vdbIngestTool, vdbStatsTool } from '../tools/builtin/memory-vdb.js';
+import { webBrowseTool, webClickTool, webTypeTool, webScreenshotTool, webExtractTool, webScrollTool, webWaitTool, webSessionTool, webTabOpenTool, webTabSwitchTool, webTabCloseTool, webTabsTool, webDownloadTool, webUploadTool } from '../tools/builtin/web-browser.js';
 import { createSpawnTool, createSubAgentStatusTool } from '../tools/builtin/spawn.js';
 import { SubAgentManager } from '../sessions/sub-agent.js';
 import { createMessageTool, createTypingTool, createPresenceTool, createDeleteMessageTool, createMarkReadTool } from '../tools/builtin/message.js';
@@ -57,7 +58,7 @@ import { runAgent } from '../agent/runner.js';
 import { ContextMonitor } from '../agent/context-monitor.js';
 import { PulseBudgetManager } from '../agent/pulse.js';
 import { BlinkController } from '../agent/blink.js';
-import { loadConfig, type Mach6Config } from '../config/config.js';
+import { loadConfig, type SymbioteConfig } from '../config/config.js';
 import type { Provider, ProviderConfig } from '../providers/types.js';
 import { anthropicProvider } from '../providers/anthropic.js';
 import { openaiProvider } from '../providers/openai.js';
@@ -137,8 +138,8 @@ const PROVIDERS = new Map<string, Provider>([
 
 // ─── Gateway ───────────────────────────────────────────────────────────────
 
-export class Mach6Gateway {
-  private config: Mach6Config;
+export class SymbioteGateway {
+  private config: SymbioteConfig;
   private gatewayConfig: GatewayConfig;
   private channelRegistry: ChannelRegistry;
   private toolRegistry: ToolRegistry;
@@ -207,6 +208,9 @@ export class Mach6Gateway {
         processStartTool, processPollTool, processKillTool, processListTool,
         ttsTool, webFetchTool, memorySearchTool, combRecallTool, combStageTool,
         vdbSearchTool, vdbIngestTool, vdbStatsTool,
+        webBrowseTool, webClickTool, webTypeTool, webScreenshotTool, webExtractTool,
+        webScrollTool, webWaitTool, webSessionTool, webTabOpenTool, webTabSwitchTool,
+        webTabCloseTool, webTabsTool, webDownloadTool, webUploadTool,
       ]) {
         this.toolRegistry.register(tool);
       }
@@ -297,9 +301,9 @@ export class Mach6Gateway {
   // ── Start ──────────────────────────────────────────────────────────────
 
   async start(): Promise<void> {
-    console.log(versionBanner('1.0.0'));
+    console.log(versionBanner('2.0.0'));
 
-    const gatewayTitle = gradient('GATEWAY', [138, 43, 226], [0, 229, 255]);
+    const gatewayTitle = gradient('SYMBIOTE', [138, 43, 226], [0, 229, 255]);
     console.log(`  ${palette.bold}${gatewayTitle}${palette.reset}`);
     console.log();
     console.log(kvLine('Provider', `${palette.cyan}${this.providerName}${palette.reset}${palette.dim}/${palette.reset}${palette.white}${this.model}${palette.reset}`));
@@ -338,7 +342,7 @@ export class Mach6Gateway {
     const elapsed = Date.now() - this.startTime;
     console.log();
     console.log(divider());
-    const readyMsg = gradient('GATEWAY READY', [0, 230, 118], [0, 188, 212]);
+    const readyMsg = gradient('SYMBIOTE READY', [0, 230, 118], [0, 188, 212]);
     console.log(`  ${palette.bold}${palette.green}⚡${palette.reset} ${palette.bold}${readyMsg}${palette.reset} ${palette.dim}— ${elapsed}ms${palette.reset}`);
     console.log();
   }
@@ -464,7 +468,7 @@ export class Mach6Gateway {
 
         await bridge.connect();
 
-        // Register all discovered tools into Mach6's registry
+        // Register all discovered tools into Symbiote's registry
         const tools = bridge.getTools();
         for (const tool of tools) {
           this.toolRegistry.register(tool);
@@ -965,19 +969,10 @@ export class Mach6Gateway {
     }
     this.channelRegistry.setSessionActive(sessionId, true);
 
-    // ── WhatsApp Social Protocol ──────────────────────────────────────────
-    // Auto mark-read (blue ticks) + acknowledge receipt before processing.
-    // This gives immediate visual feedback that the message was received,
-    // without relying on the typing bubble which can be jarring.
-    if (envelope.source.channelType === 'whatsapp' && envelope.metadata.platformMessageId) {
-      const adapter = this.channelRegistry.get(envelope.source.adapterId);
-      if (adapter && typeof (adapter as any).markRead === 'function') {
-        (adapter as any).markRead(
-          envelope.source.chatId,
-          envelope.metadata.platformMessageId
-        ).catch(() => {});
-      }
-    }
+    // ── WhatsApp Read Receipts ───────────────────────────────────────────
+    // Do NOT auto mark-read here. The agent calls mark_read explicitly
+    // per message, which preserves unread badges / notifications on the
+    // user's phone. Auto-read was eating Ali's notifications (Day 27).
 
     // Start sustained typing (refreshes every 20s for WA, 8s for Discord)
     const typingTarget = { adapterId: envelope.source.adapterId, chatId: envelope.source.chatId };
@@ -1377,7 +1372,7 @@ export class Mach6Gateway {
    * This gives the next session lossless context of what was happening when the
    * process went down — conversations, directives, mid-task state.
    * 
-   * Global: every Mach6 instance (AVA, Aria, future) gets this automatically.
+   * Global: every Symbiote instance (AVA, Aria, future) gets this automatically.
    */
   private async flushCombOnShutdown(tailMessages = 4): Promise<void> {
     const ws = this.config.workspace;
@@ -1537,7 +1532,7 @@ export class Mach6Gateway {
 
 // ─── CLI Entry ─────────────────────────────────────────────────────────────
 
-export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
+export async function startGateway(configPath?: string): Promise<SymbioteGateway> {
   // Load gateway config from mach6.json or env
   const config = loadConfig(configPath);
 
@@ -1575,7 +1570,7 @@ export async function startGateway(configPath?: string): Promise<Mach6Gateway> {
     webHost: (config as any).webHost ?? '127.0.0.1',
   };
 
-  const gateway = new Mach6Gateway(gatewayConfig);
+  const gateway = new SymbioteGateway(gatewayConfig);
   await gateway.start();
   return gateway;
 }

@@ -1,5 +1,5 @@
 /**
- * Mach6 — Brand Kit
+ * Symbiote — Brand Kit
  * Visual identity for CLI surfaces. Colors, logos, formatting.
  * 
  * Built by Artifact Virtual.
@@ -92,7 +92,7 @@ export function multiGradient(text: string, stops: [number, number, number][]): 
 // ── ASCII Art ───────────────────────────────────────────────────
 
 /**
- * The Mach6 banner — compact, striking.
+ * The Symbiote banner — compact, striking.
  * Each line gets the violet→cyan→gold gradient.
  */
 export function banner(): string {

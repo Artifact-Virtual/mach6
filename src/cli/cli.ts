@@ -1,5 +1,5 @@
 /**
- * Mach6 — CLI Router
+ * Symbiote — CLI Router
  * 
  * Subcommand dispatcher. Routes `mach6 <command>` to the right handler.
  * 
@@ -16,7 +16,7 @@
  *   version     — Show version info
  *   help        — Show this help
  * 
- * Mach6 AI Gateway — Artifact Virtual
+ * Symbiote AI Gateway — Artifact Virtual
  */
 
 import * as fs from 'node:fs';
@@ -277,7 +277,7 @@ async function cmdStart() {
     return;
   }
 
-  console.log(info('Starting Mach6 daemon...'));
+  console.log(info('Starting Symbiote daemon...'));
   
   const daemonPath = path.join(ROOT, 'gateway', 'daemon.js');
   const logFile = getLogFile();

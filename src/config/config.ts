@@ -1,4 +1,4 @@
-// Mach6 — Config loading
+// Symbiote — Config loading
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -25,7 +25,7 @@ export interface HeartbeatConfigBlock {
   quietHoursEnd?: number;
 }
 
-export interface Mach6Config {
+export interface SymbioteConfig {
   providers: {
     anthropic?: { apiKey?: string; baseUrl?: string; timeoutMs?: number };
     // openai provider exists as protocol layer (used by Copilot/Gladius) but not as direct config
@@ -56,7 +56,7 @@ export interface Mach6Config {
   };
 }
 
-const DEFAULT_CONFIG: Mach6Config = {
+const DEFAULT_CONFIG: SymbioteConfig = {
   providers: {},
   defaultProvider: 'github-copilot',
   defaultModel: 'claude-sonnet-4',
@@ -82,7 +82,7 @@ function resolveEnvVars(obj: any): any {
   return obj;
 }
 
-function resolveEnvKeys(config: Mach6Config): Mach6Config {
+function resolveEnvKeys(config: SymbioteConfig): SymbioteConfig {
   // Resolve ${VAR} patterns throughout config
   config = resolveEnvVars(config);
 
@@ -94,7 +94,7 @@ function resolveEnvKeys(config: Mach6Config): Mach6Config {
   return config;
 }
 
-export function loadConfig(configPath?: string): Mach6Config {
+export function loadConfig(configPath?: string): SymbioteConfig {
   const tryPaths = configPath
     ? [configPath]
     : [
@@ -122,13 +122,13 @@ export function loadConfig(configPath?: string): Mach6Config {
 }
 
 // Re-export for validator
-export type { Mach6Config as Mach6ConfigType };
+export type { SymbioteConfig as SymbioteConfigType };
 
 /**
  * Convert the mach6.json `adaptiveTemperature` (or top-level `temperature` object) block
  * into a TemperatureConfig for the ATM system.
  */
-export function toTemperatureConfig(config: Mach6Config): TemperatureConfig {
+export function toTemperatureConfig(config: SymbioteConfig): TemperatureConfig {
   const atm = config.adaptiveTemperature;
   if (!atm || !atm.adaptive) {
     return {

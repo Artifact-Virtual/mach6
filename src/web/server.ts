@@ -1,5 +1,5 @@
 /**
- * Mach6 Web UI Server
+ * Symbiote Web UI Server
  * Zero dependencies — native Node.js http + SSE streaming
  */
 
@@ -298,7 +298,7 @@ async function streamChat(
     console.error(`  [mach6-web] Chat proxy error: ${errMsg}`);
 
     // Send error as assistant message so user sees it
-    const errorContent = `Connection to agent failed: ${errMsg}. Make sure the Mach6 agent is running.`;
+    const errorContent = `Connection to agent failed: ${errMsg}. Make sure the Symbiote agent is running.`;
     res.write(`data: ${JSON.stringify({ type: 'text', content: errorContent, id: assistantId })}\n\n`);
     res.write(`data: ${JSON.stringify({ type: 'done', message: { id: assistantId, role: 'assistant', content: errorContent, timestamp: Date.now(), latencyMs: latency } })}\n\n`);
     res.end();

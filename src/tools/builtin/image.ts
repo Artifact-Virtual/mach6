@@ -1,4 +1,4 @@
-// Mach6 — Builtin tool: vision analysis
+// Symbiote — Builtin tool: vision analysis
 // Routes through GitHub Copilot (OpenAI-compatible proxy) for vision.
 // NO direct Anthropic/OpenAI API calls — we pay for Copilot, use Copilot.
 

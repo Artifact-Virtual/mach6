@@ -1,5 +1,5 @@
-// Mach6 — MCP Server
-// Exposes all Mach6 tools via MCP protocol (JSON-RPC over stdio)
+// Symbiote — MCP Server
+// Exposes all Symbiote tools via MCP protocol (JSON-RPC over stdio)
 // Connect from VS Code: add to .vscode/mcp.json or global mcp.json
 //
 // Usage:
@@ -251,4 +251,4 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-log(`Mach6 MCP Server v${SERVER_VERSION} ready — ${registry.list().length} tools`);
+log(`Symbiote MCP Server v${SERVER_VERSION} ready — ${registry.list().length} tools`);

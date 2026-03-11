@@ -1,6 +1,6 @@
-// Mach6 — Embedded Vector Database (VDB)
+// Symbiote — Embedded Vector Database (VDB)
 //
-// Purpose-built persistent memory for Mach6 agents.
+// Purpose-built persistent memory for Symbiote agents.
 // Zero external dependencies. Pure TypeScript. File-backed.
 // "So light it doesn't even exist."
 //
@@ -395,7 +395,7 @@ export class VectorDB {
 
 // ── Session Ingester ─────────────────────────────────────────────────────
 
-/** Extract indexable documents from a Mach6 session file. */
+/** Extract indexable documents from a Symbiote session file. */
 export function extractFromSession(sessionPath: string, source = 'whatsapp'): VDBDocument[] {
   const docs: VDBDocument[] = [];
   try {

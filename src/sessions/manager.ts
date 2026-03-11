@@ -1,4 +1,4 @@
-// Mach6 — Session lifecycle manager
+// Symbiote — Session lifecycle manager
 
 import fs from 'node:fs';
 import os from 'node:os';

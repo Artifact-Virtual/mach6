@@ -1,4 +1,4 @@
-// Mach6 — Builtin tool: exec shell commands (enhanced with background + PTY)
+// Symbiote — Builtin tool: exec shell commands (enhanced with background + PTY)
 
 import { spawn } from 'node:child_process';
 import { getProcessManager } from './process.js';

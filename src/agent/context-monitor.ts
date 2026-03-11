@@ -1,4 +1,4 @@
-// Mach6 — Proactive Context Management (fixes Pain #3)
+// Symbiote — Proactive Context Management (fixes Pain #3)
 // Track tokens in real-time. Compact before overflow. Never hit the wall.
 
 import os from 'node:os';

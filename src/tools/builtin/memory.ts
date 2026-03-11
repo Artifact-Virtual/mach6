@@ -1,4 +1,4 @@
-// Mach6 — HEKTOR memory search tool
+// Symbiote — HEKTOR memory search tool
 
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';

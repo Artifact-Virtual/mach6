@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Mach6 Channel Integration Test
+ * Symbiote Channel Integration Test
  * 
  * Tests the FULL path: BusEnvelope → agent turn → LLM → tools → response → send
  * Uses a mock adapter so no real Discord/WhatsApp is needed.
@@ -113,7 +113,7 @@ async function simulateAgentTurn(envelope: BusEnvelope): Promise<{
 }
 
 async function main() {
-  console.log('\n⚡ Mach6 Channel Integration Test\n');
+  console.log('\n⚡ Symbiote Channel Integration Test\n');
   console.log('This tests the FULL message pipeline: envelope → prompt → LLM → tools → response\n');
 
   // ── Test 1: WhatsApp DM from Ali ──

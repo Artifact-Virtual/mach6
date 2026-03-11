@@ -1,5 +1,5 @@
 /**
- * Mach6 — WhatsApp Channel Adapter
+ * Symbiote — WhatsApp Channel Adapter
  * 
  * Baileys (multi-device) integration. Media, reactions, read receipts,
  * groups, mentions, ephemeral messages, voice notes.
@@ -279,10 +279,11 @@ export class WhatsAppAdapter extends BaseAdapter {
           this.emit(source, payload, msg.key.id ?? undefined);
         }
 
-        // Auto-read
-        if (this.autoRead && this.socket) {
-          this.socket.readMessages([msg.key]).catch(() => {});
-        }
+        // Auto-read disabled — agent calls mark_read explicitly per message.
+        // Keeping autoRead ON was eating sender's unread badges/notifications.
+        // if (this.autoRead && this.socket) {
+        //   this.socket.readMessages([msg.key]).catch(() => {});
+        // }
       }
     }
   }

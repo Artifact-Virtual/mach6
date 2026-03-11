@@ -1,7 +1,7 @@
 /**
- * Mach6 IPC Client
+ * Symbiote IPC Client
  * 
- * Helper for sending authenticated IPC requests to other Mach6 agents.
+ * Helper for sending authenticated IPC requests to other Symbiote agents.
  * Signs requests with the local agent's HMAC-SHA256 key.
  * 
  * Usage:

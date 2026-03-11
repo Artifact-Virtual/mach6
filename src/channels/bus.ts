@@ -1,5 +1,5 @@
 /**
- * Mach6 — Message Bus
+ * Symbiote — Message Bus
  * 
  * Priority queue with interrupt support and backpressure.
  * In-process implementation. No external dependencies.
@@ -39,7 +39,7 @@ interface Subscription {
 
 // ─── Bus Implementation ────────────────────────────────────────────────────
 
-export class Mach6Bus implements MessageBus {
+export class SymbioteBus implements MessageBus {
   private queue: BusEnvelope[] = [];
   private subscriptions = new Map<string, Subscription>();
   private sessionSubscriptions = new Map<string, Set<string>>(); // sessionId → sub IDs

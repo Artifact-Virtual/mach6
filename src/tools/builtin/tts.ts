@@ -1,4 +1,4 @@
-// Mach6 — Builtin tool: text-to-speech
+// Symbiote — Builtin tool: text-to-speech
 // Uses edge-tts (free, Microsoft) as primary, no API key needed.
 // Free, no API key needed.
 

@@ -1,5 +1,5 @@
 /**
- * Mach6 IPC Identity Module
+ * Symbiote IPC Identity Module
  * 
  * Cryptographic identity verification for inter-agent communication.
  * Uses HMAC-SHA256 with a shared keyring to verify agent identity

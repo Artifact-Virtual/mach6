@@ -1,4 +1,4 @@
-// Mach6 — Builtin tool: write file
+// Symbiote — Builtin tool: write file
 
 import fs from 'node:fs';
 import os from 'node:os';

@@ -1,4 +1,4 @@
-// Mach6 — VDB Memory Tools
+// Symbiote — VDB Memory Tools
 //
 // Native persistent memory search powered by the embedded VDB.
 // Replaces HEKTOR dependency for session-based memory.

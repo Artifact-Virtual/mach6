@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Mach6 Agent Pipeline Smoke Test
+ * Symbiote Agent Pipeline Smoke Test
  * Tests: config loading → provider auth → LLM call → tool execution → response
  * Does NOT touch any channels (Discord/WhatsApp).
  */
@@ -27,7 +27,7 @@ function assert(cond: boolean, label: string, detail?: string) {
 }
 
 async function main() {
-  console.log('\n⚡ Mach6 Agent Pipeline Smoke Test\n');
+  console.log('\n⚡ Symbiote Agent Pipeline Smoke Test\n');
 
   // 1. Config
   console.log('── Config ──');
@@ -96,7 +96,7 @@ async function main() {
   console.log('\n── Agent Loop (tool use) ──');
   try {
     const messages: Message[] = [
-      { role: 'system', content: 'You are Mach6 smoke test. Use the read tool to read mach6.json, then respond with the defaultModel value. Be brief.' },
+      { role: 'system', content: 'You are Symbiote smoke test. Use the read tool to read mach6.json, then respond with the defaultModel value. Be brief.' },
       { role: 'user', content: 'Read mach6.json and tell me the defaultModel.' },
     ];
     const provConfig: ProviderConfig = {

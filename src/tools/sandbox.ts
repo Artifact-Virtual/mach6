@@ -1,5 +1,5 @@
 /**
- * Mach6 — Tool Sandbox
+ * Symbiote — Tool Sandbox
  * 
  * Enforces per-session security boundaries on tool execution.
  * This is the ONLY place where tool access control happens.
@@ -74,13 +74,13 @@ function resolvePath(p: string): string {
   return path.resolve(p);
 }
 
-/** Mach6 engine directory (absolute) */
+/** Symbiote engine directory (absolute) */
 const __filename_esm = fileURLToPath(import.meta.url);
 const __dirname_esm = path.dirname(__filename_esm);
 const MACH6_ROOT = path.resolve(__dirname_esm, '..', '..');
 
 /**
- * Rule: No modifying Mach6 engine files (src/, dist/, config, package.json)
+ * Rule: No modifying Symbiote engine files (src/, dist/, config, package.json)
  * Applies to: edit, write tools for non-admin sessions
  */
 const noEngineModification: SandboxRule = {
@@ -92,7 +92,7 @@ const noEngineModification: SandboxRule = {
 
     const filePath = resolvePath(String(input.path ?? ''));
     if (filePath.startsWith(MACH6_ROOT)) {
-      return `Cannot modify Mach6 engine files (${path.relative(MACH6_ROOT, filePath)}). Only admin sessions can edit engine code.`;
+      return `Cannot modify Symbiote engine files (${path.relative(MACH6_ROOT, filePath)}). Only admin sessions can edit engine code.`;
     }
     return null;
   },
@@ -113,7 +113,7 @@ const noDangerousCommands: SandboxRule = {
     // Patterns that are NEVER allowed for non-admin sessions
     const dangerousPatterns: Array<[RegExp, string]> = [
       // Process/service control
-      [/systemctl\s+.*(restart|stop|start|kill|daemon-reload).*mach6/i, 'Cannot control Mach6 service'],
+      [/systemctl\s+.*(restart|stop|start|kill|daemon-reload).*mach6/i, 'Cannot control Symbiote service'],
       [/kill\s+(-9\s+)?(\d+|%|\$)/i, 'Cannot kill processes'],
       [/pkill|killall/i, 'Cannot kill processes'],
       

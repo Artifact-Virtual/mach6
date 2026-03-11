@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-<title>Mach6</title>
+<title>Symbiote</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -378,7 +378,7 @@ html, body {
     <div class="sidebar-header">
       <div class="brand">
         <div class="brand-mark">M6</div>
-        <span class="brand-text">Mach6</span>
+        <span class="brand-text">Symbiote</span>
         <span class="brand-version" id="versionBadge"></span>
       </div>
     </div>
@@ -393,7 +393,7 @@ html, body {
         <span id="footerStatusText">Connecting...</span>
       </div>
       <div class="sidebar-footer-item" style="color:var(--text-ghost);font-size:11px;">
-        Powered by <a href="https://github.com/Artifact-Virtual/mach6" target="_blank" style="color:var(--text-tertiary);text-decoration:none;">Artifact Virtual</a>
+        Powered by <a href="https://github.com/Artifact-Virtual/symbiote" target="_blank" style="color:var(--text-tertiary);text-decoration:none;">Artifact Virtual</a>
       </div>
     </div>
   </aside>
@@ -433,7 +433,7 @@ html, body {
         </div>
         <div class="input-footer">
           <span class="input-hint"><kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line</span>
-          <span class="powered-by">Mach6 by <a href="https://artifactvirtual.com" target="_blank">Artifact Virtual</a></span>
+          <span class="powered-by">Symbiote by <a href="https://artifactvirtual.com" target="_blank">Artifact Virtual</a></span>
         </div>
       </div>
     </div>
@@ -444,12 +444,12 @@ var API_BASE = window.location.origin;
 var agentName = 'Agent', agentInitial = 'A', providerInfo = '';
 var isStreaming = false, retryDelay = 3000, retryTimer = null;
 
-function loadSessions() { try { return JSON.parse(localStorage.getItem('mach6_sessions') || '[]'); } catch { return []; } }
-function saveSessions(s) { localStorage.setItem('mach6_sessions', JSON.stringify(s)); }
-function getActiveId() { return localStorage.getItem('mach6_active_session') || ''; }
-function setActiveId(id) { localStorage.setItem('mach6_active_session', id); }
-function getMessages(sid) { try { return JSON.parse(localStorage.getItem('mach6_msg_' + sid) || '[]'); } catch { return []; } }
-function saveMessages(sid, msgs) { localStorage.setItem('mach6_msg_' + sid, JSON.stringify(msgs)); }
+function loadSessions() { try { return JSON.parse(localStorage.getItem('symbiote_sessions') || '[]'); } catch { return []; } }
+function saveSessions(s) { localStorage.setItem('symbiote_sessions', JSON.stringify(s)); }
+function getActiveId() { return localStorage.getItem('symbiote_active_session') || ''; }
+function setActiveId(id) { localStorage.setItem('symbiote_active_session', id); }
+function getMessages(sid) { try { return JSON.parse(localStorage.getItem('symbiote_msg_' + sid) || '[]'); } catch { return []; } }
+function saveMessages(sid, msgs) { localStorage.setItem('symbiote_msg_' + sid, JSON.stringify(msgs)); }
 
 function createSession() {
   var id = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
@@ -461,7 +461,7 @@ function createSession() {
 function deleteSession(id, e) {
   if (e) e.stopPropagation();
   var sessions = loadSessions().filter(function(s) { return s.id !== id; });
-  saveSessions(sessions); localStorage.removeItem('mach6_msg_' + id);
+  saveSessions(sessions); localStorage.removeItem('symbiote_msg_' + id);
   if (getActiveId() === id) { if (sessions.length > 0) setActiveId(sessions[0].id); else { createSession(); return; } }
   renderSessions(); renderChat();
 }
@@ -512,7 +512,7 @@ function renderChat() {
 }
 function renderWelcome() {
   return '<div class="welcome"><div class="welcome-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>' +
-    '<h1>How can I help you today?</h1><p>I\'m ' + agentName + ', your AI assistant powered by Mach6. Ask me anything.</p>' +
+    '<h1>How can I help you today?</h1><p>I\'m ' + agentName + ', your AI assistant powered by Symbiote. Ask me anything.</p>' +
     '<div class="suggestions">' +
     '<button class="suggestion" onclick="useSuggestion(this)"><span class="suggestion-icon">&#9758;</span>What can you help me with?</button>' +
     '<button class="suggestion" onclick="useSuggestion(this)"><span class="suggestion-icon">&#9881;</span>Tell me about your capabilities</button>' +
@@ -678,7 +678,7 @@ function checkConnection() {
     var welcome = document.querySelector('.welcome h1');
     if (welcome) welcome.textContent = 'How can I help you today?';
     var welcomeP = document.querySelector('.welcome p');
-    if (welcomeP) welcomeP.textContent = "I'm " + agentName + ", your AI assistant powered by Mach6. Ask me anything.";
+    if (welcomeP) welcomeP.textContent = "I'm " + agentName + ", your AI assistant powered by Symbiote. Ask me anything.";
   }).catch(function() {
     document.getElementById('footerStatus').className = 'status-dot offline';
     document.getElementById('footerStatusText').textContent = 'Offline';
