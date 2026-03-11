@@ -1,110 +1,146 @@
 # VDB — Embedded Persistent Memory
 
-VDB is Mach6's built-in persistent memory engine — a zero-dependency, pure TypeScript implementation that gives agents long-term recall across sessions.
+Zero-dependency embedded database for persistent, searchable memory across all conversations. Pure TypeScript. File-backed. So light it doesn't even exist until you need it.
 
-## Overview
+## What It Does
 
-VDB combines BM25 keyword scoring with TF-IDF cosine similarity in a hybrid search model. No external databases, no vector embedding services, no cloud dependencies. Everything runs in-process and persists to local JSONL files.
+VDB gives agents long-term memory. Every conversation — WhatsApp, Discord, webchat, COMB entries — becomes searchable. The agent can recall past decisions, previous conversations, and staged context without external databases.
 
-```
-Session messages → VDB auto-ingest → BM25 + TF-IDF index → Hybrid search
-                                          ↓
-                                    JSONL on disk (append-only)
-```
-
-## Architecture
-
-| Component | What it does |
-|-----------|-------------|
-| **BM25 Index** | Term frequency with inverse document frequency. Handles exact keyword matches. |
-| **TF-IDF Vectors** | Sparse term vectors with cosine similarity. Handles semantic proximity. |
-| **Hybrid Scoring** | `BM25 × 0.4 + TF-IDF × 0.6` with recency boost (10% for <24h, 5% for <7d). |
-| **JSONL Storage** | Append-only document store. Compact on demand. |
-| **Idle Eviction** | Memory-mapped on first query, evicted after configurable idle timeout (default 5 min). |
-| **Deduplication** | Content-hash based. Same text is never indexed twice. |
-
-## What Gets Indexed
-
-- WhatsApp conversations (user ↔ agent turns)
-- Discord conversations
-- COMB staged memories
-- Webchat sessions
-- Any text the agent manually indexes
-
-**What does NOT get indexed:** tool calls/results (noise), system prompts (already in context), binary/image content.
-
-## Tools
-
-VDB exposes four tools to the agent:
+Three tools expose it:
 
 | Tool | Description |
 |------|-------------|
-| `memory_search` | Hybrid search across all indexed documents. Supports BM25, vector, or hybrid mode. |
-| `memory_recall` | Search past conversations filtered by source (WhatsApp, Discord, webchat, COMB). |
-| `memory_ingest` | Trigger a full re-ingest of all session files. |
-| `memory_stats` | Show document count, term count, disk usage, source breakdown. |
+| `memory_recall` | Search persistent memory by query |
+| `memory_ingest` | Bootstrap memory from session archives |
+| `memory_stats` | Database statistics and health |
 
-### Example: Searching Memory
+## Architecture
 
-```typescript
-// From an agent's perspective (tool call):
-memory_search({ query: "trading system architecture", k: 5, mode: "hybrid" })
-
-// Returns ranked results with scores, timestamps, and source attribution
+```
+workspace/.vdb/
+├── documents.jsonl    # Append-only document store
+└── index.json         # Index metadata (doc count, term count, last saved)
 ```
 
-## Auto-Ingest
+### Search Engine
 
-VDB automatically ingests session files on startup and periodically during runtime. It scans:
+VDB uses a hybrid retrieval strategy combining two algorithms:
 
-- Active session directory
-- Session archive directory
-- Filters by adapter source (WhatsApp, Discord, webchat)
-- Skips tool calls, system prompts, and short messages (<15 chars)
-- Skips Blink system messages
+- **BM25** (40% weight) — keyword matching with term frequency, inverse document frequency, and document length normalization. The standard for information retrieval.
+- **TF-IDF cosine similarity** (60% weight) — sparse vector comparison for semantic-adjacent matching. Captures term importance across the corpus.
 
-## Real-Time Pulse
+Final scores are normalized and combined:
 
-VDB integrates with Mach6's Pulse system. Every 5 seconds during active sessions, new messages are indexed in real-time — no need to wait for session end.
+```
+score = (bm25_normalized × 0.4) + (tfidf_normalized × 0.6)
+```
+
+A recency boost is applied: documents from the last 24 hours get a 10% boost, last 7 days get 5%.
+
+### Storage
+
+Documents are stored in JSONL (one JSON object per line), append-only. This makes writes crash-safe — a partial write corrupts at most one line, and the rest of the file remains valid.
+
+Each document stores:
+
+| Field | Description |
+|-------|-------------|
+| `id` | Content-derived hash (MD5 of timestamp + text prefix) |
+| `text` | The actual content (max 2000 chars) |
+| `source` | Origin channel: `whatsapp`, `discord`, `webchat`, `comb` |
+| `role` | `user`, `assistant`, or `context` |
+| `timestamp` | Epoch milliseconds |
+| `terms` | Pre-tokenized for BM25 (lowercase, stop words removed) |
+| `tfidf` | Sparse TF-IDF vector |
+
+### Deduplication
+
+Documents are deduplicated by content hash (MD5 of full text). The same message indexed twice is silently skipped.
+
+### Memory Management
+
+VDB is lazy-loaded — the index stays on disk until the first query. After the configured idle timeout (default: 5 minutes), the in-memory index is evicted. Data remains on disk and is reloaded on next access.
+
+## Auto-Ingestion
+
+VDB includes a background ingestion system:
+
+- **Real-time pulse** — every 5 seconds during active conversations, new messages are indexed incrementally
+- **Session archive ingestion** — past session files are scanned and indexed on first `memory_recall` call (max once per 10 minutes)
+- **Source detection** — session filenames are parsed to determine source (`whatsapp-*`, `discord-*`, `http-*`)
+
+### What Gets Indexed
+
+- User and assistant messages (≥15 characters)
+- COMB staged entries
+- Manually indexed content
+
+### What Gets Filtered
+
+- Tool calls and tool results (noise)
+- System prompts (already in context)
+- Blink markers and internal signals
+- Messages shorter than 15 characters
+
+## Tools
+
+### memory_recall
+
+```json
+{ "query": "deploy key rotation", "k": 5, "source": "whatsapp" }
+```
+
+Returns the top `k` results ranked by hybrid score, with timestamps and source attribution.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `query` | string | required | Search query |
+| `k` | number | `5` | Number of results |
+| `source` | string | all | Filter: `whatsapp`, `discord`, `webchat`, `comb` |
+
+### memory_ingest
+
+```json
+{}
+```
+
+Scans all session directories and indexes conversation history. Run once to bootstrap, then auto-ingestion handles new sessions.
+
+### memory_stats
+
+```json
+{}
+```
+
+Returns document count, term count, disk usage, last indexed timestamp, and per-source document counts.
 
 ## Configuration
 
-VDB is enabled by default. Configuration in `mach6.json`:
+VDB works out of the box with zero configuration. The `.vdb/` directory is created automatically in the agent's workspace on first use.
 
-```json
-{
-  "vdb": {
-    "enabled": true,
-    "idleTimeoutMs": 300000,
-    "autoIngest": true
-  }
-}
-```
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Idle timeout | 5 minutes | Evict in-memory index after inactivity |
+| Auto-ingest interval | 10 minutes | Minimum time between auto-ingestion runs |
+| Max document text | 2000 chars | Longer messages are truncated |
 
-## Storage
+## Compact
 
-Data lives in `<workspace>/.vdb/`:
+Over time, the JSONL file may accumulate redundancy. VDB provides a `compact()` method that deduplicates and rewrites the file cleanly. This is handled internally — no user action required.
 
-| File | Purpose |
-|------|---------|
-| `documents.jsonl` | Append-only document store (all indexed content) |
-| `index.json` | Index metadata (document count, term count, last saved) |
+## Relationship to HEKTOR
 
-### Compaction
+Enterprise deployments may also run HEKTOR (an external BM25 + vector hybrid search daemon with 384-dimension MiniLM embeddings). VDB and HEKTOR serve different purposes:
 
-Over time, the JSONL file accumulates. Run `compact()` to deduplicate and rewrite clean:
+| | VDB | HEKTOR |
+|---|-----|--------|
+| **Scope** | Conversation memory | Workspace-wide file indexing |
+| **Dependencies** | Zero (pure TypeScript) | Python, ONNX, MiniLM |
+| **Documents** | Session messages, COMB | 39K+ files |
+| **Search** | BM25 + TF-IDF | BM25 + vector (384d) |
+| **Tool** | `memory_recall` | `memory_search` |
 
-```typescript
-const saved = db.compact(); // returns bytes saved
-```
-
-## Design Philosophy
-
-> "So light it doesn't even exist."
-
-VDB was designed to give every Mach6 agent persistent memory without any infrastructure overhead. No Redis. No PostgreSQL. No Pinecone. Just files on disk and an in-memory index that loads in milliseconds.
-
-For agents that need industrial-scale memory (tens of thousands of documents, dense vector embeddings), use HEKTOR alongside VDB. They complement each other — VDB for lightweight, always-on recall; HEKTOR for deep semantic search across large corpora.
+Both can coexist. VDB handles conversation memory; HEKTOR handles enterprise knowledge.
 
 ---
 

@@ -1,68 +1,98 @@
 # Voice Pipeline
 
-Bidirectional voice processing for Mach6 agents — automatic transcription of incoming voice messages and text-to-speech generation for replies.
+Transparent voice support for Mach6 agents. Voice messages are auto-transcribed on input and optionally synthesized on output. The agent doesn't need to know about audio formats.
 
-## Overview
+## How It Works
 
-The voice pipeline intercepts voice and PTT (push-to-talk) messages in the gateway:
+### Inbound (Voice → Text)
 
-- **Inbound:** Voice notes → automatic transcription → text injected into agent context
-- **Outbound:** When the original message was voice, the agent's text reply is converted to a voice note and sent back
+When a voice note arrives via WhatsApp or Discord:
 
-## Inbound: Voice → Text
+1. The voice middleware detects the audio attachment (`voice` or `audio` type)
+2. The audio file is transcribed using **faster-whisper** STT (speech-to-text)
+3. The transcript is injected into the conversation as `🎤 Voice transcript: "..."`
+4. The agent sees plain text — it never handles audio directly
 
-When a user sends a voice message on WhatsApp or Discord:
+The envelope is internally marked as a voice message so the response handler knows to consider a voice reply.
 
-1. The media file is downloaded by the channel adapter
-2. `isVoiceMessage()` detects voice/audio attachments with downloaded files
-3. `transcribeAudio()` runs faster-whisper via the `stt.py` CLI
-4. The transcript is injected into the user's message: `🎤 Voice transcript: "..."`
-5. The agent processes it as regular text
+### Outbound (Text → Voice)
 
-### Transcription Details
+Voice replies are generated via the `tts` tool:
 
-- **Engine:** faster-whisper (local, no cloud)
-- **Timeout:** 120 seconds per transcription
-- **Output:** text, detected language, audio duration, processing time
-- **Silence detection:** Empty/silence audio returns `isEmpty: true`
+```json
+{ "text": "Hello, how can I help?", "voice": "nova" }
+```
 
-## Outbound: Text → Voice
+The TTS system generates an OGG audio file and returns the file path. When used in response to a voice message, the audio is sent back as a voice note on the originating channel.
 
-When replying to a voice message:
+**Available voices:** `nova`, `alloy`, `echo`, `fable`, `onyx`, `shimmer`
 
-1. The envelope is marked as voice-originated (`_isVoice` flag)
-2. After the agent produces its text response, `generateVoiceReply()` is called
-3. TTS generates an OGG audio file
-4. The voice file is sent as a voice note on the same channel
-5. Temporary files are cleaned up after sending
+## Architecture
 
-### TTS Details
+```
+Inbound:
+  Voice Note → Download → faster-whisper STT → Text → Agent
 
-- **Engine:** MeloTTS + OpenVoice V2 (local, sovereign — no cloud APIs)
-- **Short text (<250 chars):** Direct `speak.py` synthesis (~15-30s)
-- **Long text (>250 chars):** Chunked `tts.py` pipeline (up to 5 min)
-- **Output format:** OGG (Opus codec)
+Outbound:
+  Agent → tts tool → Edge TTS → OGG file → Send as voice message
+```
+
+### STT (Speech-to-Text)
+
+| Setting | Value |
+|---------|-------|
+| **Engine** | faster-whisper (CTranslate2-optimized Whisper) |
+| **Invocation** | Python CLI (`stt.py`) called via child process |
+| **Output** | JSON: `text`, `language`, `duration`, `processing_time`, `is_empty` |
+| **Timeout** | 120 seconds per transcription |
+| **Empty detection** | Silence or unintelligible audio returns `is_empty: true` |
+
+### TTS (Text-to-Speech)
+
+| Setting | Value |
+|---------|-------|
+| **Engine** | Microsoft Edge TTS (free, high quality) |
+| **Voices** | 6 built-in: nova, alloy, echo, fable, onyx, shimmer |
+| **Output** | OGG audio file |
+| **Chunking** | Long texts (>250 chars) use chunked synthesis |
+| **Timeout** | 120s for short texts, 300s for long texts |
+| **Cleanup** | Temporary audio files deleted after sending |
+
+## Integration Points
+
+The voice middleware integrates at two points in the gateway pipeline:
+
+1. **After `buildUserContent()`** — `processVoiceInbound()` transcribes and augments the user message
+2. **After agent response** — `generateVoiceReply()` synthesizes audio when the original message was voice
+
+### Sovereign Voice (Enterprise)
+
+Enterprise deployments can use a sovereign voice pipeline (MeloTTS + OpenVoice V2) for fully offline, zero-cloud voice synthesis. This uses a custom voice profile with cloned vocal characteristics. Configuration is per-deployment.
 
 ## Configuration
 
-The voice pipeline requires local Python environments:
+Voice works out of the box when the required Python dependencies are installed:
 
-```bash
-# STT (Speech-to-Text)
-~/.hektor-env/bin/python3 voice/stt.py <audio_file>
+- **STT:** `faster-whisper` in the Python environment
+- **TTS:** Edge TTS (network-based, free) or MeloTTS + OpenVoice (local, sovereign)
 
-# TTS (Text-to-Speech)
-~/.ava-voice/venv/bin/python3 .ava-voice/speak.py "text" --output /tmp/reply.ogg
+No `mach6.json` configuration is required — the middleware auto-detects voice messages and handles them transparently.
+
+## Example Flow
+
 ```
+User sends voice note (WhatsApp):
+  → "Hey, can you check if the deploy went through?"
 
-No `mach6.json` configuration needed — the pipeline auto-detects voice messages and activates.
+Agent sees:
+  🎤 Voice transcript: "Hey, can you check if the deploy went through?"
 
-## Limitations
+Agent responds with tts tool:
+  → tts("The deploy completed successfully at 2:15 PM. All health checks passing.")
 
-- CPU-only inference (no GPU required, but slower)
-- TTS generation takes 15-30 seconds per sentence (warm cache)
-- Voice cloning requires a reference voiceprint (pre-configured per agent)
-- Currently supports WhatsApp voice notes; Discord voice channels are not yet integrated
+User receives:
+  → Voice note with the response
+```
 
 ---
 

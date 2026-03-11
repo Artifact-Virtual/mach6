@@ -1,83 +1,114 @@
 # Web UI (Webchat)
 
-Mach6 ships with a built-in web interface — a single-page chat UI served directly from the gateway. No build step. No CDN. No external dependencies.
+Built-in web interface for interacting with your Mach6 agent directly from a browser. No build step, no frontend framework — one static HTML file.
 
-## Overview
-
-The Web UI provides a browser-based chat interface to any Mach6 agent. It connects to the HTTP API via Server-Sent Events (SSE) for real-time streaming responses.
+## Access
 
 ```
-Browser → Web UI (port 3009) → HTTP API (port 3006) → Agent Runner → LLM
-                                      ↑
-                                    SSE stream
+http://localhost:3009
 ```
 
-## Accessing the Web UI
-
-The Web UI is served on the `webPort` configured in `mach6.json`:
-
-```
-http://127.0.0.1:3009    # AVA instance
-http://127.0.0.1:3010    # Aria instance
-http://192.168.1.13:3009  # LAN access (if firewall allows)
-```
-
-> **Security:** As of v1.7.0, the webchat binds to `0.0.0.0` by default but should be restricted via firewall rules. The HTTP API binds to `127.0.0.1` only.
+The port is configurable via `webPort` in `mach6.json` (default: `3009`).
 
 ## Features
 
-- **Dark glass aesthetic** — Artifact Virtual branding, gradient headers
-- **Real-time streaming** — SSE-based response streaming (tokens appear as generated)
-- **Session persistence** — conversations persist in the browser via localStorage
-- **Agent identity** — agent name and emoji pulled from config, not hardcoded
-- **Mobile responsive** — works on desktop and mobile browsers
-- **Zero build step** — single HTML file with inline CSS and JavaScript
+### Chat Interface
 
-## Configuration
+- **Dark glass aesthetic** — void-black background with glass-morphism panels and purple accent lighting
+- **Streaming responses** — real-time token streaming via SSE (Server-Sent Events) with animated streaming dots
+- **Markdown rendering** — full markdown support with syntax-highlighted code blocks
+- **Latency badge** — live provider response time displayed per message
+- **Mobile responsive** — adapts to phones and tablets
 
-In `mach6.json`:
+### Session Management
 
-```json
-{
-  "webPort": 3009,
-  "httpPort": 3006
-}
-```
+- **Session sidebar** — create, switch, and delete sessions from the left panel
+- **Named sessions** — each session is labeled and persisted
+- **Session history** — conversations are preserved across page reloads
 
-| Field | Default | Description |
-|-------|---------|-------------|
-| `webPort` | `3009` | Port for the Web UI server |
-| `httpPort` | `3006` | Port for the HTTP API (webchat proxies to this) |
+### Tool Call Visualization
+
+- **Real-time tool calls** — see which tools the agent is using as they execute
+- **Expandable details** — click to see tool inputs and outputs
+- **Status indicators** — running, completed, or errored tool calls
+
+### Configuration Panel
+
+- **Provider switching** — change LLM provider on the fly
+- **Model selection** — switch models without restarting
+- **Temperature control** — adjust creativity in real time
+- **API key management** — enter or update provider keys (redacted display)
+
+### Sub-Agent Monitor
+
+- **Active sub-agents** — see spawned sub-agents and their status
+- **Progress tracking** — running, completed, or killed states with timestamps
 
 ## Architecture
 
-The Web UI server (`src/web/server.ts`) is a lightweight HTTP server that:
+The web UI consists of two parts:
 
-1. Serves the single-page HTML interface on `GET /`
-2. Proxies chat requests to the HTTP API on the agent's `httpPort`
-3. Forwards SSE events from the API to the browser client
-4. Manages server-side session creation for webchat-originated sessions
+1. **Static HTML** (`web/index.html`) — single file containing all HTML, CSS, and JavaScript. No dependencies, no build step.
+2. **Web server** (`src/web/server.ts`) — native Node.js HTTP server with SSE streaming. Proxies chat requests to the agent runner via the HTTP API.
 
-### Session Handling
+### API Endpoints
 
-- Sessions created in the browser are auto-created server-side on first message
-- Session IDs are generated client-side and persisted in localStorage
-- The `senderId` for webchat sessions is `webchat-owner`
-- The `source` is tagged as `webchat` for VDB indexing
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Serves the web UI HTML |
+| `/api/sessions` | GET | List all sessions |
+| `/api/sessions` | POST | Create a new session |
+| `/api/sessions/:id` | GET | Get session details |
+| `/api/sessions/:id` | DELETE | Delete a session |
+| `/api/sessions/:id/messages` | POST | Send a message (SSE stream) |
+| `/api/config` | GET | Get current config |
+| `/api/config` | PUT | Update config |
+| `/api/providers` | GET | List available providers |
+| `/api/tools` | GET | List available tools |
+| `/api/stats` | GET | Runtime statistics |
 
-## Static File Serving
+### SSE Streaming
 
-The Web UI server also serves static files from the workspace with proper MIME types:
+Chat responses use Server-Sent Events for real-time streaming:
 
 ```
-.html → text/html
-.css  → text/css
-.js   → application/javascript
-.json → application/json
-.png  → image/png
-.svg  → image/svg+xml
+event: token
+data: {"text": "Hello"}
+
+event: tool_call
+data: {"name": "read", "input": {"path": "file.ts"}, "status": "running"}
+
+event: tool_result
+data: {"name": "read", "output": "...", "status": "done"}
+
+event: done
+data: {"tokensIn": 150, "tokensOut": 89, "latencyMs": 1230}
 ```
+
+## Configuration
+
+```jsonc
+{
+  "webPort": 3009,           // Web UI port (default: 3009)
+  "apiPort": 3006            // HTTP API port (used internally)
+}
+```
+
+Agent identity is pulled from `mach6.json`:
+
+```jsonc
+{
+  "name": "AVA",           // Displayed in the header
+  "emoji": "🔮"            // Displayed next to the name
+}
+```
+
+### Security
+
+By default, the web UI binds to `127.0.0.1` (localhost only). To expose it on the network, use a reverse proxy (nginx, Caddy) with authentication for production deployments.
+
+> **Note:** The web UI shares the same session and tool access as other channels. Any tool available to the agent is available through the web UI.
 
 ---
 
-*Enhanced in v1.7.0 with dark glass visual overhaul, Artifact Virtual branding, and localhost-only API binding.*
+*Added in v1.7.0*

@@ -429,6 +429,7 @@ mach6/
 │   ├── cli/            # Interactive setup wizard
 │   ├── config/         # Config loader, validator, env interpolation
 │   ├── cron/           # Cron budget management
+│   ├── formatters/     # Markdown formatting for channel output
 │   ├── gateway/        # Persistent daemon — signals, hot-reload, turns
 │   ├── heartbeat/      # Activity-aware periodic health checks
 │   ├── memory/         # VDB — embedded persistent memory engine
@@ -436,6 +437,7 @@ mach6/
 │   ├── security/       # Input sanitization
 │   ├── sessions/       # Session store, queue, sub-agents
 │   ├── tools/          # 24 built-in tools, policy engine, MCP bridge
+│   ├── types/          # Type declarations
 │   ├── voice/          # Voice middleware — STT + TTS pipeline
 │   └── web/            # Web UI server (SSE streaming)
 ├── web/                # Web UI (single HTML file)
@@ -482,7 +484,7 @@ mach6/
 | Built-in tools | 24 |
 | LLM providers | 8 |
 | Channel adapters | 2 + HTTP API + Web UI |
-| Documentation files | 37 |
+| Documentation files | 42 |
 | Cold boot → connected | ~2.3s |
 | Runtime dependencies | Node.js only |
 

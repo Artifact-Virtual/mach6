@@ -99,7 +99,43 @@ MACH6_PORT=3006
 | `temperature` | number | `0.3` | Response temperature (0.0–1.2) |
 | `workspace` | string | `cwd()` | Agent's file system root |
 | `sessionsDir` | string | `".sessions"` | Session persistence directory |
-| `apiPort` | number | `3006` | HTTP API and Web UI port |
+| `apiPort` | number | `3006` | HTTP API port |
+| `webPort` | number | `3009` | Web UI port |
+
+## Web UI Configuration
+
+The Web UI runs on a separate port from the HTTP API:
+
+```jsonc
+{
+  "apiPort": 3006,         // HTTP API (agent runner, channels)
+  "webPort": 3009          // Web UI (browser chat interface)
+}
+```
+
+The web UI binds to `127.0.0.1` by default for security. See [Web UI](../channels/webchat.md) for details.
+
+## VDB Configuration
+
+VDB (embedded persistent memory) works out of the box with zero configuration. The `.vdb/` directory is created automatically in the agent's workspace.
+
+Advanced tuning is done at the code level:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Idle timeout | 5 min | Evict in-memory index after inactivity |
+| Auto-ingest interval | 10 min | Minimum time between session auto-ingestion |
+| Storage format | JSONL | Append-only, crash-safe |
+
+See [VDB](../core/vdb.md) for architecture details.
+
+## Voice Configuration
+
+The voice pipeline auto-detects voice messages and handles them transparently. No configuration required for basic operation.
+
+For enterprise deployments with sovereign voice (MeloTTS + OpenVoice), the voice scripts are configured via environment-specific paths in the voice middleware source.
+
+See [Voice Pipeline](../core/voice.md) for details.
 
 ## Provider Configuration
 

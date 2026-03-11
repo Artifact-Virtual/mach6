@@ -8,15 +8,18 @@ No Docker. No Redis. No cloud dependencies. **Your machine, your data, your keys
 
 ## Key Features
 
-- **7 LLM providers** — Groq (default, free tier), Anthropic, OpenAI, xAI (Grok), GitHub Copilot, Ollama (local), Gladius. Hot-swappable mid-session.
+- **8 LLM providers** — Groq (default, free tier), Anthropic, OpenAI, Gemini, xAI (Grok), GitHub Copilot, Ollama (local), Gladius. Hot-swappable mid-session.
 - **Real-time interrupts** — say "stop" and the agent stops. Immediately.
 - **Message coalescing** — three rapid messages become one coherent request
 - **Blink** — seamless iteration budget continuation. The wall doesn't exist.
 - **Pulse** — adaptive iteration budget. Starts small, grows when needed.
+- **VDB** — embedded persistent memory with BM25 + TF-IDF hybrid search. Real-time indexing.
+- **Voice pipeline** — transparent voice note transcription (STT) and voice reply generation (TTS).
+- **Web UI** — dark glass aesthetic, session management, streaming with tool visualization.
 - **COMB** — lossless session-to-session memory. Zero external dependencies.
 - **Agent creation wizard** — interactive setup with identity scaffolding
 - **Discord + WhatsApp + HTTP API + Web UI + CLI**
-- **18+ built-in tools** — file I/O, shell, browser, TTS, memory, messaging
+- **24 built-in tools** — file I/O, shell, browser, TTS, memory, messaging, sub-agents
 - **Sub-agent spawning** — up to depth 3
 - **Activity-aware heartbeat** — adapts to user presence
 - **Cross-platform** — Windows, Linux, macOS. CPU-only, no GPU required.
@@ -44,4 +47,4 @@ No Docker. No Redis. No cloud dependencies. **Your machine, your data, your keys
 
 ---
 
-Built by [Artifact Virtual](https://artifactvirtual.com). v1.5.0. MIT License.
+Built by [Artifact Virtual](https://artifactvirtual.com). v1.7.0. MIT License.
