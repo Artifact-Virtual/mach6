@@ -515,7 +515,7 @@ function formatUptime(ms: number): string {
 
 // ── Server ─────────────────────────────────────────────────────────────────
 
-export function startWebServer(port = 3006): http.Server {
+export function startWebServer(port = 3006, host = '127.0.0.1'): http.Server {
   const server = http.createServer((req, res) => {
     handleRequest(req, res).catch(err => {
       console.error(`${palette.dim}  [mach6-web]${palette.reset}`, err);
@@ -537,8 +537,8 @@ export function startWebServer(port = 3006): http.Server {
   };
   sessions.set(defaultSession.id, defaultSession);
 
-  server.listen(port, '127.0.0.1', () => {
-    console.log(ok(`Web UI → ${palette.cyan}http://127.0.0.1:${port}${palette.reset}`));
+  server.listen(port, host, () => {
+    console.log(ok(`Web UI → ${palette.cyan}http://${host}:${port}${palette.reset}`));
   });
 
   return server;

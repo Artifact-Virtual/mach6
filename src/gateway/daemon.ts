@@ -634,8 +634,9 @@ export class Mach6Gateway {
 
   private startWebUi(): void {
     const webPort = (this.gatewayConfig as any).webPort ?? 3009;
+    const webHost = (this.gatewayConfig as any).webHost ?? '127.0.0.1';
     try {
-      this.webServer = startWebServer(webPort);
+      this.webServer = startWebServer(webPort, webHost);
     } catch (err) {
       console.log(warn(`Web UI failed to start — ${(err as Error).message}`));
     }
