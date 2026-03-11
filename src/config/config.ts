@@ -104,7 +104,9 @@ export function loadConfig(configPath?: string): Mach6Config {
 
   for (const p of tryPaths) {
     try {
-      const raw = fs.readFileSync(p, 'utf-8');
+      let raw = fs.readFileSync(p, 'utf-8');
+      // Strip UTF-8 BOM if present (Windows PowerShell adds this)
+      if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
       // Strip comments but preserve // inside strings (e.g. "http://...")
       // Strategy: match strings first (preserve), then strip line/block comments
       const stripped = raw.replace(
