@@ -1,11 +1,12 @@
 {
   "name": "symbiote",
   "version": "2.1.0",
-  "description": "Symbiote — AI agent framework with persistent memory and web automation. Runs on a laptop.",
+  "description": "Symbiote \u2014 AI agent framework with persistent memory and web automation. Runs on a laptop.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "mach6": "dist/index.js"
+    "mach6": "dist/index.js",
+    "symbiote": "dist/index.js"
   },
   "files": [
     "dist",
@@ -50,10 +51,10 @@
   ],
   "author": "Artifact Virtual <hello@artifactvirtual.com> (https://artifactvirtual.com)",
   "license": "MIT",
-  "homepage": "https://github.com/Artifact-Virtual/mach6#readme",
+  "homepage": "https://github.com/Artifact-Virtual/symbiote#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Artifact-Virtual/mach6.git"
+    "url": "git+https://github.com/Artifact-Virtual/symbiote.git"
   },
   "bugs": {
     "url": "https://github.com/Artifact-Virtual/mach6/issues"

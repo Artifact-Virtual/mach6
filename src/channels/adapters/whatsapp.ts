@@ -290,7 +290,7 @@ export class WhatsAppAdapter extends BaseAdapter {
 
   /** Download media from message, attach local paths to payload, then emit */
   private async downloadAndEmit(msg: WAMessage, source: ChannelSource, payload: InboundPayload): Promise<void> {
-    const mediaDir = path.join(os.tmpdir(), 'mach6-media');
+    const mediaDir = path.join(os.tmpdir(), 'symbiote-media');
     try {
       const localPath = await this.downloadMedia(msg, mediaDir);
       if (localPath && payload.media) {

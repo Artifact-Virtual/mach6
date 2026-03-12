@@ -118,9 +118,9 @@ const noDangerousCommands: SandboxRule = {
       [/pkill|killall/i, 'Cannot kill processes'],
       
       // Engine file modification via shell
-      [/(?:cat|echo|tee|sed|awk)\s+.*>.*mach6-core/i, 'Cannot modify Mach6 files via shell'],
-      [/(?:cp|mv|ln)\s+.*mach6-core\/(src|dist)/i, 'Cannot modify Mach6 files via shell'],
-      [/rm\s+.*mach6-core/i, 'Cannot delete Mach6 files'],
+      [/(?:cat|echo|tee|sed|awk)\s+.*>.*mach6-core/i, 'Cannot modify Symbiote files via shell'],
+      [/(?:cp|mv|ln)\s+.*mach6-core\/(src|dist)/i, 'Cannot modify Symbiote files via shell'],
+      [/rm\s+.*mach6-core/i, 'Cannot delete Symbiote files'],
       
       // System-level destruction
       [/rm\s+-rf?\s+\/(usr|etc|var|home|boot|sys|proc)/i, 'Cannot delete system directories'],

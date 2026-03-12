@@ -56,7 +56,7 @@ async function main() {
   const execResult = await registry.execute('exec', { command: 'echo MACH6_ALIVE' });
   assert(execResult.includes('MACH6_ALIVE'), 'exec tool executes');
 
-  const writeResult = await registry.execute('write', { path: path.join(os.tmpdir(), 'mach6-test.txt'), content: 'smoke test' });
+  const writeResult = await registry.execute('write', { path: path.join(os.tmpdir(), 'symbiote-test.txt'), content: 'smoke test' });
   assert(writeResult.includes('success') || writeResult.includes('wrote') || !writeResult.includes('error'), 'write tool executes');
 
   // 4. Provider Authentication (GitHub Copilot token exchange)
@@ -123,7 +123,7 @@ async function main() {
   }
 
   // 6. Cleanup
-  try { (await import('node:fs')).unlinkSync(path.join(os.tmpdir(), 'mach6-test.txt')); } catch {}
+  try { (await import('node:fs')).unlinkSync(path.join(os.tmpdir(), 'symbiote-test.txt')); } catch {}
 
   printSummary();
 }

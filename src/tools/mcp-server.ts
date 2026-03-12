@@ -3,15 +3,15 @@
 // Connect from VS Code: add to .vscode/mcp.json or global mcp.json
 //
 // Usage:
-//   node dist/tools/mcp-server.js [--config /path/to/mach6.json]
+//   node dist/tools/mcp-server.js [--config /path/to/symbiote.json]
 //
 // VS Code mcp.json:
 //   {
 //     "servers": {
-//       "mach6": {
+//       "symbiote": {
 //         "type": "stdio",
 //         "command": "node",
-//         "args": ["/path/to/mach6/dist/tools/mcp-server.js"]
+//         "args": ["/path/to/symbiote/dist/tools/mcp-server.js"]
 //       }
 //     }
 //   }
@@ -44,7 +44,7 @@ interface JsonRpcMessage {
 
 // ── Server State ───────────────────────────────────────────────────────────
 
-const SERVER_NAME = 'mach6';
+const SERVER_NAME = 'symbiote';
 const SERVER_VERSION = '1.3.0';
 const PROTOCOL_VERSION = '2025-03-26';
 

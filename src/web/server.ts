@@ -295,7 +295,7 @@ async function streamChat(
   } catch (err) {
     const latency = Date.now() - startMs;
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error(`  [mach6-web] Chat proxy error: ${errMsg}`);
+    console.error(`  [symbiote-web] Chat proxy error: ${errMsg}`);
 
     // Send error as assistant message so user sees it
     const errorContent = `Connection to agent failed: ${errMsg}. Make sure the Symbiote agent is running.`;
@@ -518,7 +518,7 @@ function formatUptime(ms: number): string {
 export function startWebServer(port = 3006, host = '127.0.0.1'): http.Server {
   const server = http.createServer((req, res) => {
     handleRequest(req, res).catch(err => {
-      console.error(`${palette.dim}  [mach6-web]${palette.reset}`, err);
+      console.error(`${palette.dim}  [symbiote-web]${palette.reset}`, err);
       if (!res.headersSent) {
         json(res, { error: 'Internal server error' }, 500);
       }

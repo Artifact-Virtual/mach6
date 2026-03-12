@@ -49,7 +49,7 @@ async function simulateAgentTurn(envelope: BusEnvelope): Promise<{
   toolRegistry.register(editTool);
 
   // Session manager
-  const sessionsDir = path.join(os.tmpdir(), 'mach6-test-sessions');
+  const sessionsDir = path.join(os.tmpdir(), 'symbiote-test-sessions');
   fs.mkdirSync(sessionsDir, { recursive: true });
   const sessionManager = new SessionManager(sessionsDir);
 

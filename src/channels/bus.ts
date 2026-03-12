@@ -233,7 +233,7 @@ export class SymbioteBus implements MessageBus {
           sub.handler(env);
           this._totalDelivered++;
         } catch (err) {
-          console.error(`[mach6-bus] Subscription handler error:`, err);
+          console.error(`[symbiote-bus] Subscription handler error:`, err);
         }
       }
     }
@@ -254,7 +254,7 @@ export class SymbioteBus implements MessageBus {
         sub.handler(envelope);
         this._totalDelivered++;
       } catch (err) {
-        console.error(`[mach6-bus] Interrupt handler error:`, err);
+        console.error(`[symbiote-bus] Interrupt handler error:`, err);
       }
     }
   }

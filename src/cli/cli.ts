@@ -1,7 +1,7 @@
 /**
  * Symbiote — CLI Router
  * 
- * Subcommand dispatcher. Routes `mach6 <command>` to the right handler.
+ * Subcommand dispatcher. Routes `symbiote <command>` to the right handler.
  * 
  * Commands:
  *   init        — Interactive setup wizard (create mach6.json + workspace)
@@ -41,7 +41,7 @@ function getPidFile(): string {
 }
 
 function getLogFile(): string {
-  return path.join(process.cwd(), 'mach6.log');
+  return path.join(process.cwd(), 'symbiote.log');
 }
 
 function getConfigPath(): string | undefined {
@@ -121,9 +121,9 @@ async function cmdHelp() {
   }
 
   console.log();
-  console.log(`  ${palette.dim}Usage:${palette.reset}  mach6 ${palette.cyan}<command>${palette.reset} ${palette.dim}[options]${palette.reset}`);
-  console.log(`  ${palette.dim}REPL:${palette.reset}   mach6 ${palette.dim}(no args — starts interactive agent)${palette.reset}`);
-  console.log(`  ${palette.dim}One-shot:${palette.reset} mach6 agent ${palette.cyan}"your question here"${palette.reset}`);
+  console.log(`  ${palette.dim}Usage:${palette.reset}  symbiote ${palette.cyan}<command>${palette.reset} ${palette.dim}[options]${palette.reset}`);
+  console.log(`  ${palette.dim}REPL:${palette.reset}   symbiote ${palette.dim}(no args — starts interactive agent)${palette.reset}`);
+  console.log(`  ${palette.dim}One-shot:${palette.reset} symbiote agent ${palette.cyan}"your question here"${palette.reset}`);
   console.log();
   console.log(`  ${palette.dim}Options:${palette.reset}`);
   console.log(`    ${palette.cyan}--config=${palette.reset}${palette.silver}<path>${palette.reset}      Path to mach6.json`);
@@ -218,7 +218,7 @@ async function cmdInstall() {
   if (fs.existsSync(soulFile)) {
     console.log(ok(`Workspace: ${workspace}`));
   } else {
-    console.log(info(`Workspace: ${workspace} (no SOUL.md — run mach6 init)`));
+    console.log(info(`Workspace: ${workspace} (no SOUL.md — run symbiote init)`));
   }
 
   // 7. Channels check
@@ -252,9 +252,9 @@ async function cmdInstall() {
 
   console.log();
   if (allGood) {
-    console.log(ok(`${palette.bold}Environment is ready.${palette.reset} Run ${palette.cyan}mach6 start${palette.reset} to launch.`));
+    console.log(ok(`${palette.bold}Environment is ready.${palette.reset} Run ${palette.cyan}symbiote start${palette.reset} to launch.`));
   } else {
-    console.log(warn('Some issues found. Fix them and run mach6 install again.'));
+    console.log(warn('Some issues found. Fix them and run symbiote install again.'));
   }
   console.log();
 }
@@ -265,7 +265,7 @@ async function cmdStart() {
   const { running, pid } = isRunning();
   if (running) {
     console.log(warn(`Daemon is already running (PID: ${pid})`));
-    console.log(info(`Use ${palette.cyan}mach6 restart${palette.reset} to restart.`));
+    console.log(info(`Use ${palette.cyan}symbiote restart${palette.reset} to restart.`));
     console.log();
     return;
   }
@@ -302,10 +302,10 @@ async function cmdStart() {
   if (check.running) {
     console.log(ok(`Daemon started (PID: ${check.pid})`));
     console.log(info(`Logs: ${palette.dim}${logFile}${palette.reset}`));
-    console.log(info(`Stop: ${palette.cyan}mach6 stop${palette.reset}`));
+    console.log(info(`Stop: ${palette.cyan}symbiote stop${palette.reset}`));
   } else {
     console.log(fail('Daemon failed to start. Check logs:'));
-    console.log(info(`  ${palette.dim}mach6 logs${palette.reset}`));
+    console.log(info(`  ${palette.dim}symbiote logs${palette.reset}`));
     // Clean up stale PID file
     try { fs.unlinkSync(getPidFile()); } catch {}
   }
@@ -520,7 +520,7 @@ async function cmdConfigure() {
 
   const { running } = isRunning();
   if (running) {
-    console.log(info(`Daemon is running. ${palette.cyan}mach6 restart${palette.reset} to apply changes.`));
+    console.log(info(`Daemon is running. ${palette.cyan}symbiote restart${palette.reset} to apply changes.`));
   }
   console.log();
 }
@@ -530,7 +530,7 @@ async function cmdLogs() {
   if (!fs.existsSync(logFile)) {
     console.log();
     console.log(info('No log file found.'));
-    console.log(info(`Start the daemon first: ${palette.cyan}mach6 start${palette.reset}`));
+    console.log(info(`Start the daemon first: ${palette.cyan}symbiote start${palette.reset}`));
     console.log();
     return;
   }

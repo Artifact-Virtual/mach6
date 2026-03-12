@@ -108,7 +108,7 @@ export class McpBridge {
     const initResp = await this._request('initialize', {
       protocolVersion: '2025-03-26',
       capabilities: {},
-      clientInfo: { name: 'mach6', version: '1.0.0' },
+      clientInfo: { name: 'symbiote', version: '1.0.0' },
     }, timeout);
 
     if (initResp.error) {

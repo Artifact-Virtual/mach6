@@ -1649,10 +1649,10 @@ export class SymbioteGateway {
 // ─── CLI Entry ─────────────────────────────────────────────────────────────
 
 export async function startGateway(configPath?: string): Promise<SymbioteGateway> {
-  // Load gateway config from mach6.json or env
+  // Load gateway config from symbiote config or env
   const config = loadConfig(configPath);
 
-  // Build gateway config from environment + mach6.json
+  // Build gateway config from environment + symbiote config
   const gatewayConfig: GatewayConfig = {
     configPath,
     ownerIds: (config as any).ownerIds ?? [],

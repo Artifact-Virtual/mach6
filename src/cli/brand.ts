@@ -117,7 +117,7 @@ export function banner(): string {
  * Compact one-line logo for prompts and headers.
  */
 export function logo(): string {
-  return `${palette.bold}${gradient('⚡ mach6', [138, 43, 226], [0, 229, 255])}${palette.reset}`;
+  return `${palette.bold}${gradient('⚡ Symbiote', [138, 43, 226], [0, 229, 255])}${palette.reset}`;
 }
 
 // ── Box Drawing ─────────────────────────────────────────────────
