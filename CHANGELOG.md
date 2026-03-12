@@ -1,10 +1,18 @@
 # Changelog
 
-## v2.0.0 — Birthday Release (2026-03-12)
+## v2.1.0 (2026-03-12)
 
-Ali's 38th birthday. The version number earned, not bumped.
+### Changes
+- Configurable idle emoji via `IDLE_EMOJI` environment variable
+- Dependabot security patches (file-type)
+- Documentation and landing page updates for Symbiote rebrand
+- Version bump and release consolidation
 
-### 🔧 Provider Health Monitor — Circuit Breaker + Intelligent Failover
+---
+
+## v2.0.0 (2026-03-12)
+
+### Provider Health Monitor — Circuit Breaker + Intelligent Failover
 - **Circuit breaker pattern:** Providers that fail 3× consecutively are automatically disabled for 60s cooldown
 - **Latency-aware routing:** Tracks moving average latency per provider, prefers faster ones when all healthy
 - **Auto-recovery:** Half-open probes after cooldown, full recovery after 2 consecutive successes
@@ -19,7 +27,7 @@ Ali's 38th birthday. The version number earned, not bumped.
 - **Zero-loss restarts:** Gateway restarts no longer lose conversation context registration
 - File: `src/sessions/hot-resume.ts` (193 lines)
 
-### 📊 Metrics Collector — Runtime Observability
+### Metrics Collector — Runtime Observability
 - **Provider metrics:** Call count, error count, token usage (in/out), latency histograms (p50/p90/p99)
 - **Tool metrics:** Per-tool call frequency, latency, error rates
 - **Session metrics:** Turn count, active sessions tracking

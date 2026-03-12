@@ -4,7 +4,7 @@
 
 **Autonomous AI agent gateway with web automation. Single process. Any machine.**
 
-v2.0.0
+v2.1.0
 
 </div>
 
@@ -76,7 +76,7 @@ node dist/gateway/daemon.js
 
 Boot output:
 ```
-SYMBIOTE v2.0.0 — Autonomous Agent Gateway
+SYMBIOTE v2.1.0 — Autonomous Agent Gateway
 [symbiote] Tools registered: 31
 [symbiote] Discord: connected
 [symbiote] WhatsApp: connected  
