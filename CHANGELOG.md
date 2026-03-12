@@ -2,11 +2,41 @@
 
 ## v2.1.0 (2026-03-12)
 
-### Changes
-- Configurable idle emoji via `IDLE_EMOJI` environment variable
+### Circuit Breaker Failover
+- Providers that fail 3x consecutively are automatically disabled for 60s cooldown
+- Latency-aware routing: tracks moving average latency per provider, prefers faster ones when all healthy
+- Auto-recovery: half-open probes after cooldown, full recovery after 2 consecutive successes
+- Health states: healthy -> degraded -> unhealthy -> circuit-open (automatic transitions)
+- Circuit-open providers skipped during fallback chain (no wasted retries)
+- See: [Circuit Breaker](docs/core/circuit-breaker.md)
+
+### Session Hot Resume
+- Session state persisted to disk every 60s
+- On process termination: all active sessions marked and flushed to disk before exit
+- Startup restoration: previous session state reloaded on boot with 24h age validation
+- Gateway restarts no longer lose conversation context registration
+- See: [Sessions](docs/core/sessions.md)
+
+### Metrics Collector
+- Provider metrics: call count, error count, token usage (in/out), latency histograms (p50/p90/p99)
+- Tool metrics: per-tool call frequency, latency, error rates
+- Session metrics: turn count, active session tracking
+- Ring buffer design: bounded memory, automatic eviction of old samples
+- Auto-flush to JSON every 5 minutes; zero dependencies (pure Node.js stdlib)
+- See: [Metrics](docs/core/metrics.md)
+
+### Configurable Idle Emoji
+- Idle status indicator emoji now configurable via `idleEmoji` field in `mach6.json`
+- Also configurable via `IDLE_EMOJI` environment variable
+- Defaults to existing behavior when absent
+
+### Enhanced Health Endpoint
+- `GET /api/v1/health` now returns comprehensive gateway status
+- Fields: version, uptime (human-readable), PID, provider health states (per-provider circuit breaker status), metrics snapshot (tokens/latency/errors), memory usage (RSS + heap in MB), active turns, session count, tool count, connected channels
+
+### Other
 - Dependabot security patches (file-type)
 - Documentation and landing page updates for Symbiote rebrand
-- Version bump and release consolidation
 
 ---
 
