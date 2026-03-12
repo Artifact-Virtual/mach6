@@ -74,7 +74,7 @@ const TOOL_ACTIVITY: Record<string, ActivityDisplay> = {
 };
 
 const THINKING_ACTIVITY: ActivityDisplay = { text: '🤔 Thinking...', type: ActivityType.Custom };
-const IDLE_ACTIVITY: ActivityDisplay = { text: '🔮', type: ActivityType.Custom };
+const IDLE_ACTIVITY: ActivityDisplay = { text: process.env.IDLE_EMOJI ?? '🔮', type: ActivityType.Custom };
 
 // ─── Presence Manager ──────────────────────────────────────────────────────
 
