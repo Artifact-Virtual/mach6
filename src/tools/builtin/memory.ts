@@ -1,18 +1,27 @@
-// Symbiote — HEKTOR memory search tool
+// Symbiote — Memory Search Tool
+//
+// Searches the embedded VDB (BM25 + TF-IDF hybrid).
+// No external dependencies. No Python. No daemon.
+// The VDB IS the memory system.
 
-import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import type { ToolDefinition } from '../types.js';
+import { VectorDB } from '../../memory/vdb.js';
 
-// Resolve paths from MACH6_WORKSPACE env var (set by daemon) or fallback to cwd
 function getWorkspace(): string {
   return process.env.MACH6_WORKSPACE ?? process.cwd();
 }
 
-// Quick health check — if the daemon socket doesn't exist, HEKTOR is down
-function hektorAlive(): boolean {
-  const sockPath = `${getWorkspace()}/.ava-memory/ava_daemon.sock`;
-  return existsSync(sockPath);
+// Singleton VDB (shared with memory-vdb.ts via same path)
+let _vdb: VectorDB | null = null;
+let _vdbWs: string = '';
+
+function getVDB(): VectorDB {
+  const ws = getWorkspace();
+  if (!_vdb || _vdbWs !== ws) {
+    _vdb = new VectorDB(ws);
+    _vdbWs = ws;
+  }
+  return _vdb;
 }
 
 export const memorySearchTool: ToolDefinition = {
@@ -29,27 +38,27 @@ export const memorySearchTool: ToolDefinition = {
   },
   async execute(input) {
     const query = String(input.query ?? '');
-    const mode = String(input.mode ?? 'hybrid');
     const k = Number(input.k ?? 5);
-    const ws = getWorkspace();
-
-    // Pre-flight: check daemon is running before wasting 15s on a timeout
-    if (!hektorAlive()) {
-      return 'HEKTOR search unavailable — daemon is not running. Use `exec` to run: source ' +
-        `${ws}/.hektor-env/bin/activate && python3 ${ws}/.ava-memory/ava_memory_fast.py daemon start`;
-    }
 
     try {
-      const venv = `source ${ws}/.hektor-env/bin/activate`;
-      const script = `python3 ${ws}/.ava-memory/ava_memory_fast.py`;
-      const cmd = `${venv} && ${script} search "${query.replace(/"/g, '\\"')}" --mode ${mode} -k ${k}`;
-      const out = execSync(cmd, { encoding: 'utf-8', timeout: 15000, shell: '/bin/bash' });
-      return out.trim() || 'No results found.';
-    } catch (err) {
-      // Detect timeout specifically (Node sets err.killed = true and err.signal = 'SIGTERM' on timeout)
-      if (err instanceof Error && 'killed' in err && (err as any).killed) {
-        return 'HEKTOR search timed out — daemon may be overloaded';
+      const db = getVDB();
+      const results = db.search(query, k);
+
+      if (results.length === 0) {
+        return 'No results found. The memory index may need ingestion — try memory_ingest.';
       }
+
+      const lines: string[] = [`Found ${results.length} results:\n`];
+      for (const r of results) {
+        const date = new Date(r.timestamp).toISOString().slice(0, 16).replace('T', ' ');
+        const preview = r.text.length > 400 ? r.text.slice(0, 400) + '...' : r.text;
+        lines.push(`[${date}] (${r.source}/${r.role}, score: ${r.score.toFixed(3)})`);
+        lines.push(preview);
+        lines.push('');
+      }
+
+      return lines.join('\n');
+    } catch (err) {
       return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
     }
   },

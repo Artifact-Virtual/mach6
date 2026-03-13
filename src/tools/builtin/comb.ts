@@ -1,7 +1,6 @@
 // Symbiote — COMB: Lossless Operational Memory
 //
-// Pure Node.js implementation. Zero external dependencies.
-// Works for ANY agent on ANY platform — no Python, no venv, no flush.py.
+// Pure Node.js. Zero external dependencies. No Python. No IPC.
 //
 // Architecture:
 //   workspace/.comb/
@@ -9,17 +8,11 @@
 //     archive/         — rolled-up permanent documents (one JSON file per day)
 //     state.json       — metadata (last rollup, entry count, etc.)
 //
-// The Python COMB (flush.py + comb-db) is the advanced version for AVA.
-// This native COMB is the universal version — built into the engine.
-// If the Python stack exists, it's used. Otherwise, native COMB kicks in.
+// Every staged entry is also pushed to VDB for immediate searchability.
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import type { ToolDefinition } from '../types.js';
-
-const execFileAsync = promisify(execFile);
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -28,29 +21,13 @@ function getWorkspace(): string {
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  return new Date().toISOString().slice(0, 10);
 }
 
 function yesterday(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
   return d.toISOString().slice(0, 10);
-}
-
-// ── Python COMB Detection ────────────────────────────────────────────────
-
-function hasPythonComb(ws: string): boolean {
-  const python = path.join(ws, '.hektor-env', 'bin', 'python3');
-  const flushScript = path.join(ws, '.ava-memory', 'flush.py');
-  return fs.existsSync(python) && fs.existsSync(flushScript);
-}
-
-function getPython(ws: string): string {
-  return path.join(ws, '.hektor-env', 'bin', 'python3');
-}
-
-function getFlushScript(ws: string): string {
-  return path.join(ws, '.ava-memory', 'flush.py');
 }
 
 // ── Native COMB Store ────────────────────────────────────────────────────
@@ -66,6 +43,13 @@ interface ArchiveDocument {
   content: string;
   entryCount: number;
   rolledAt: string;
+}
+
+// VDB index hook — set externally by daemon to avoid circular imports
+let _vdbIndexHook: ((text: string, source: string) => void) | null = null;
+
+export function setCombVdbHook(hook: (text: string, source: string) => void): void {
+  _vdbIndexHook = hook;
 }
 
 class NativeCombStore {
@@ -100,41 +84,18 @@ class NativeCombStore {
 
     fs.writeFileSync(filePath, JSON.stringify(entries, null, 2));
 
-    // Queue for HEKTOR ingestion (sidecar file, daemon merges on next cycle)
-    this.queueForHektor(text, date);
+    // Push to VDB for immediate searchability
+    if (_vdbIndexHook) {
+      try {
+        _vdbIndexHook(text, 'comb');
+      } catch {
+        // Non-fatal — COMB still has the data
+      }
+    }
 
     // Auto-rollup: if > 10 entries for today, roll up
     if (entries.length > 10) {
       this.rollup(date);
-    }
-  }
-
-  /** Queue staged text for HEKTOR BM25 ingestion via sidecar file */
-  private queueForHektor(text: string, date: string): void {
-    try {
-      const ws = getWorkspace();
-      // Try common HEKTOR memory locations
-      const memoryDirs = [
-        path.join(ws, '.ava-memory'),
-        path.join(ws, '..', '.ava-memory'),
-      ];
-      
-      for (const memDir of memoryDirs) {
-        if (!fs.existsSync(memDir)) continue;
-        
-        const pendingPath = path.join(memDir, 'comb-pending.jsonl');
-        const entry = JSON.stringify({
-          text,
-          date,
-          timestamp: new Date().toISOString(),
-          source: 'comb-stage-native',
-        });
-        
-        fs.appendFileSync(pendingPath, entry + '\n');
-        return; // Written to first available location
-      }
-    } catch {
-      // Non-fatal — COMB still has the data, HEKTOR catches up later
     }
   }
 
@@ -152,7 +113,6 @@ class NativeCombStore {
 
     if (entries.length === 0) return false;
 
-    // Build archive content
     const content = entries.map(e => {
       const time = new Date(e.timestamp).toLocaleTimeString('en-US', { hour12: false });
       return `[${time}] ${e.text}`;
@@ -165,7 +125,6 @@ class NativeCombStore {
       rolledAt: new Date().toISOString(),
     };
 
-    // Append to or create archive file
     const archiveFile = path.join(this.archiveDir, `${targetDate}.json`);
     let existing: ArchiveDocument[] = [];
     try {
@@ -179,7 +138,10 @@ class NativeCombStore {
     fs.unlinkSync(stagingFile);
 
     // Update state
-    this.updateState({ lastRollup: targetDate, totalArchived: (this.getState().totalArchived ?? 0) + entries.length });
+    this.updateState({
+      lastRollup: targetDate,
+      totalArchived: (this.getState().totalArchived ?? 0) + entries.length,
+    });
 
     return true;
   }
@@ -191,7 +153,6 @@ class NativeCombStore {
       '',
     ];
 
-    // 1. Read staging (today + yesterday)
     let hasStaging = false;
     for (const date of [today(), yesterday()]) {
       const stagingFile = path.join(this.stagingDir, `${date}.json`);
@@ -203,7 +164,7 @@ class NativeCombStore {
 
         hasStaging = true;
         lines.push(`--- Staged [${date}] (${entries.length} entries) ---`);
-        for (const entry of entries.slice(-8)) { // Last 8 entries max
+        for (const entry of entries.slice(-8)) {
           const preview = entry.text.length > 600 ? entry.text.slice(0, 600) + ' [...]' : entry.text;
           lines.push(preview);
           lines.push('');
@@ -211,7 +172,6 @@ class NativeCombStore {
       } catch { continue; }
     }
 
-    // 2. Read archive (today + yesterday)
     let hasArchive = false;
     for (const date of [today(), yesterday()]) {
       const archiveFile = path.join(this.archiveDir, `${date}.json`);
@@ -231,7 +191,7 @@ class NativeCombStore {
       } catch { continue; }
     }
 
-    // 3. Auto-rollup stale staging (older than yesterday)
+    // Auto-rollup stale staging
     try {
       const stagingFiles = fs.readdirSync(this.stagingDir).filter(f => f.endsWith('.json'));
       const cutoff = yesterday();
@@ -281,7 +241,7 @@ class NativeCombStore {
   }
 }
 
-// ── Singleton Store (per workspace) ──────────────────────────────────────
+// ── Singleton Store ──────────────────────────────────────────────────────
 
 let _nativeStore: NativeCombStore | null = null;
 let _nativeStoreWs: string = '';
@@ -302,26 +262,8 @@ export const combRecallTool: ToolDefinition = {
   description: 'Recall operational memory from COMB — lossless session-to-session context that persists across restarts.',
   parameters: { type: 'object', properties: {}, required: [] },
   async execute() {
-    const ws = getWorkspace();
-
-    // If Python COMB exists, use it (richer: BM25 search, chain integrity, HEKTOR integration)
-    if (hasPythonComb(ws)) {
-      try {
-        const { stdout } = await execFileAsync(getPython(ws), [getFlushScript(ws), 'recall'], {
-          encoding: 'utf-8',
-          timeout: 30000,
-          cwd: ws,
-        });
-        return stdout.trim() || 'No staged memories found.';
-      } catch (err) {
-        // Fall through to native COMB
-        console.error(`[COMB] Python recall failed, falling back to native: ${err instanceof Error ? err.message : err}`);
-      }
-    }
-
-    // Native COMB — pure Node.js, zero dependencies
     try {
-      const store = getNativeCombStore(ws);
+      const store = getNativeCombStore();
       return store.recall();
     } catch (err) {
       return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
@@ -341,26 +283,8 @@ export const combStageTool: ToolDefinition = {
   },
   async execute(input) {
     const content = String(input.content ?? '');
-    const ws = getWorkspace();
-
-    // If Python COMB exists, use it
-    if (hasPythonComb(ws)) {
-      try {
-        const { stdout } = await execFileAsync(getPython(ws), [getFlushScript(ws), 'stage', content], {
-          encoding: 'utf-8',
-          timeout: 30000,
-          cwd: ws,
-        });
-        return stdout.trim() || 'Staged successfully.';
-      } catch (err) {
-        // Fall through to native COMB
-        console.error(`[COMB] Python stage failed, falling back to native: ${err instanceof Error ? err.message : err}`);
-      }
-    }
-
-    // Native COMB
     try {
-      const store = getNativeCombStore(ws);
+      const store = getNativeCombStore();
       store.stage(content, 'agent');
       return `Staged ${content.length} chars into COMB.`;
     } catch (err) {

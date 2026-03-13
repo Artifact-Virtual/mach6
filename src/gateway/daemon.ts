@@ -12,10 +12,6 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
 // @ts-ignore — no types for qrcode-terminal
 import qrcode from 'qrcode-terminal';
 
@@ -46,7 +42,7 @@ import {
 import { ttsTool } from '../tools/builtin/tts.js';
 import { webFetchTool } from '../tools/builtin/web-fetch.js';
 import { memorySearchTool } from '../tools/builtin/memory.js';
-import { combRecallTool, combStageTool, getNativeCombStore } from '../tools/builtin/comb.js';
+import { combRecallTool, combStageTool, getNativeCombStore, setCombVdbHook } from '../tools/builtin/comb.js';
 import { vdbSearchTool, vdbIngestTool, vdbStatsTool } from '../tools/builtin/memory-vdb.js';
 import { webBrowseTool, webClickTool, webTypeTool, webScreenshotTool, webExtractTool, webScrollTool, webWaitTool, webSessionTool, webTabOpenTool, webTabSwitchTool, webTabCloseTool, webTabsTool, webDownloadTool, webUploadTool } from '../tools/builtin/web-browser.js';
 import { createSpawnTool, createSubAgentStatusTool } from '../tools/builtin/spawn.js';
@@ -56,6 +52,7 @@ import { SessionManager } from '../sessions/manager.js';
 import { buildSystemPrompt } from '../agent/system-prompt.js';
 import { runAgent } from '../agent/runner.js';
 import { ContextMonitor } from '../agent/context-monitor.js';
+import { ContextStore } from '../agent/context-store.js';
 import { PulseBudgetManager } from '../agent/pulse.js';
 import { BlinkController } from '../agent/blink.js';
 import { loadConfig, type SymbioteConfig } from '../config/config.js';
@@ -170,6 +167,8 @@ export class SymbioteGateway {
   private vdbWatermarks = new Map<string, number>();
   private vdbPulseTimer: ReturnType<typeof setInterval> | null = null;
   private vdbInstance: import('../memory/vdb.js').VectorDB | null = null;
+  /** Context Store — bridges attention (context window) and memory (vdb) */
+  private contextStore: ContextStore | null = null;
 
   /** v2.0 — Metrics collector: tokens, latency, tools, errors */
   private metrics: MetricsCollector;
@@ -411,6 +410,74 @@ export class SymbioteGateway {
     // Dont block process exit
     if (this.vdbPulseTimer.unref) this.vdbPulseTimer.unref();
     console.log(`${palette.dim}  [vdb]${palette.reset} Pulse active — indexing every ${VDB_PULSE_MS / 1000}s`);
+
+    // Initialize Context Store with vdb
+    this.initContextStore().catch(err => {
+      console.error(`${palette.dim}  [context-store]${palette.reset} Init failed:`, err);
+    });
+  }
+
+  /** Initialize the Context Store — bridges context window and vdb memory */
+  private async initContextStore(): Promise<void> {
+    if (!this.vdbInstance) {
+      const { VectorDB } = await import("../memory/vdb.js");
+      this.vdbInstance = new VectorDB(process.env.MACH6_WORKSPACE ?? process.cwd());
+    }
+    this.contextStore = new ContextStore(this.vdbInstance, {
+      retrievalK: 5,
+      retrievalThreshold: 0.15,
+      retrievalBudget: 3000,
+      queryDepth: 3,
+      sessionSource: 'session',
+      sessionId: 'main',
+    });
+
+    // Boot ingestion — load identity files into vdb for retrieval
+    const ws = this.config.workspace || process.cwd();
+    const bootFiles = [
+      'SOUL.md', 'IDENTITY.md', 'AGENTS.md', 'BOOTSTRAP.md', 'TOOLS.md',
+    ];
+    const texts: Array<{ text: string; source: string }> = [];
+    for (const f of bootFiles) {
+      const fp = path.join(ws, f);
+      try {
+        if (fs.existsSync(fp)) {
+          texts.push({ text: fs.readFileSync(fp, 'utf-8'), source: f });
+        }
+      } catch { /* skip */ }
+    }
+
+    // Also load today's and yesterday's memory files
+    const now = new Date();
+    for (let d = 0; d < 2; d++) {
+      const date = new Date(now.getTime() - d * 86400000);
+      const dateStr = date.toISOString().split('T')[0];
+      const memFile = path.join(ws, 'memory', `${dateStr}.md`);
+      try {
+        if (fs.existsSync(memFile)) {
+          texts.push({ text: fs.readFileSync(memFile, 'utf-8'), source: `memory/${dateStr}` });
+        }
+      } catch { /* skip */ }
+    }
+
+    if (texts.length > 0) {
+      this.contextStore.ingestBoot(texts);
+    }
+
+    // Wire COMB→VDB hook: every comb_stage also indexes into VDB
+    const vdb = this.vdbInstance!;
+    setCombVdbHook((text: string, source: string) => {
+      vdb.index({
+        id: '',
+        text: text.length > 2000 ? text.slice(0, 2000) : text,
+        source,
+        role: 'context',
+        timestamp: Date.now(),
+        sessionId: 'comb',
+      });
+    });
+
+    console.log(`${palette.dim}  [context-store]${palette.reset} ${palette.green}Ready${palette.reset} — memory retrieval active, COMB→VDB wired`);
   }
 
   /** Flush new messages from all active sessions to VDB */
@@ -776,6 +843,7 @@ export class SymbioteGateway {
             sessionId,
             maxIterations: this.pulseBudget.getEffectiveCap(),
             contextMonitor: this.contextMonitor,
+            contextStore: this.contextStore ?? undefined,
             blinkController: blinkCtrl,
             abortSignal: controller.signal,
             onEvent: (ev) => {
@@ -1144,6 +1212,7 @@ export class SymbioteGateway {
         sessionId,
         maxIterations: this.pulseBudget.getEffectiveCap(),
         contextMonitor: this.contextMonitor,
+        contextStore: this.contextStore ?? undefined,
         blinkController: blinkCtrl,
         abortSignal: controller.signal,
         onEvent: (ev: any) => {
@@ -1465,20 +1534,13 @@ export class SymbioteGateway {
    * Global: every Symbiote instance (AVA, Aria, future) gets this automatically.
    */
   private async flushCombOnShutdown(tailMessages = 4): Promise<void> {
-    const ws = this.config.workspace;
-    const python = path.join(ws, '.hektor-env', 'bin', 'python3');
-    const flushScript = path.join(ws, '.ava-memory', 'flush.py');
-    const hasPythonComb = fs.existsSync(python) && fs.existsSync(flushScript);
-
     try {
-      // Collect the last N non-system messages from all recent sessions
       const sessionSummaries = this.sessionManager.list();
       const now = Date.now();
-      const RECENCY_WINDOW = 24 * 60 * 60 * 1000; // Only flush sessions active in last 24h
+      const RECENCY_WINDOW = 24 * 60 * 60 * 1000;
       let flushedCount = 0;
 
-      // Use native COMB store (works universally — no Python needed)
-      const nativeStore = getNativeCombStore(ws);
+      const nativeStore = getNativeCombStore(this.config.workspace);
 
       for (const summary of sessionSummaries) {
         if (now - summary.updatedAt > RECENCY_WINDOW) continue;
@@ -1487,48 +1549,16 @@ export class SymbioteGateway {
         if (!session || session.messages.length === 0) continue;
 
         const sessionLabel = summary.label ?? summary.id;
-
-        if (hasPythonComb) {
-          // Python COMB path (richer: chain integrity, HEKTOR integration)
-          const convMessages = session.messages.filter((m: any) => m.role !== 'system' && m.role !== 'tool');
-          const tail = convMessages.slice(-tailMessages);
-          if (tail.length === 0) continue;
-
-          const lines: string[] = [`[Session: ${sessionLabel}]`];
-          for (const msg of tail) {
-            const role = msg.role === 'assistant' ? 'AVA' : msg.role === 'user' ? 'Human' : msg.role;
-            let content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-            if (content.length > 500) content = content.slice(0, 500) + '... [truncated]';
-            lines.push(`${role}: ${content}`);
-          }
-
-          try {
-            const timestamp = new Date().toISOString();
-            const combContent = `[Auto-flush at shutdown — ${timestamp}]\n${lines.join('\n')}`;
-            await execFileAsync(python, [flushScript, 'stage', combContent], {
-              encoding: 'utf-8', timeout: 10000, cwd: ws,
-            });
-            flushedCount++;
-          } catch (pyErr) {
-            // Python failed — fall through to native
-            nativeStore.flushMessages(sessionLabel, session.messages, tailMessages);
-            flushedCount++;
-          }
-        } else {
-          // Native COMB (universal — zero dependencies)
-          nativeStore.flushMessages(sessionLabel, session.messages, tailMessages);
-          flushedCount++;
-        }
+        nativeStore.flushMessages(sessionLabel, session.messages, tailMessages);
+        flushedCount++;
       }
 
       if (flushedCount > 0) {
-        const method = hasPythonComb ? 'Python COMB' : 'native COMB';
-        console.log(`${palette.dim}  [comb]${palette.reset} ${palette.green}Auto-flushed${palette.reset} ${flushedCount} session(s) → ${method}`);
+        console.log(`${palette.dim}  [comb]${palette.reset} ${palette.green}Auto-flushed${palette.reset} ${flushedCount} session(s) → native COMB`);
       } else {
         console.log(`${palette.dim}  [comb]${palette.reset} No recent sessions to flush`);
       }
     } catch (err) {
-      // Never let COMB flush failure block shutdown
       console.error(`${palette.dim}  [comb]${palette.reset} ${palette.red}Auto-flush failed${palette.reset}: ${err instanceof Error ? err.message : err}`);
     }
   }

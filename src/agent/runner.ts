@@ -4,6 +4,7 @@
 import type { Message, ToolCall, StreamEvent, Provider, ProviderConfig, ToolDef } from '../providers/types.js';
 import { truncateContext } from './context.js';
 import { ContextMonitor } from './context-monitor.js';
+import type { ContextStore } from './context-store.js';
 import type { PolicyEngine } from '../tools/policy.js';
 import { sanitizeToolResult, logInjectionAttempt } from '../security/sanitizer.js';
 import { classifyTask, getTemperature } from './temperature.js';
@@ -29,6 +30,7 @@ export interface RunnerConfig {
   temperatureConfig?: TemperatureConfig;
   abortSignal?: AbortSignal;
   blinkController?: BlinkController;
+  contextStore?: ContextStore;
   onEvent?: (event: StreamEvent) => void;
   onToolStart?: (name: string, input: Record<string, unknown>) => void;
   onToolEnd?: (name: string, result: string) => void;
@@ -144,8 +146,27 @@ export async function runAgent(
       }
     }
 
-    // Truncate context if needed
-    const truncated = truncateContext(currentMessages, maxCtx);
+    // Truncate context if needed — absorb dropped messages into memory
+    let truncated: Message[];
+    if (config.contextStore) {
+      truncated = config.contextStore.truncateAndAbsorb(currentMessages, maxCtx, truncateContext);
+    } else {
+      truncated = truncateContext(currentMessages, maxCtx);
+    }
+
+    // Retrieve relevant prior context from memory (context store)
+    if (config.contextStore) {
+      const retrieval = config.contextStore.retrieve(truncated);
+      if (retrieval) {
+        // Insert after system messages, before conversation
+        const systemEnd = truncated.findIndex(m => m.role !== 'system');
+        if (systemEnd > 0) {
+          truncated.splice(systemEnd, 0, retrieval);
+        } else {
+          truncated.splice(1, 0, retrieval); // after first system message
+        }
+      }
+    }
 
     // Adaptive Temperature Modulation (ATM): classify task and adjust temperature
     let effectiveProviderConfig = config.providerConfig;
