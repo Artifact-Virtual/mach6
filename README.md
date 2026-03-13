@@ -1,6 +1,7 @@
 <div align="center">
 
 # Symbiote
+[**THESIS**](https://symbiote.artifactvirtual.com/)
 
 **Build persistent AI agents. Single process. Any machine.**
 
