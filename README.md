@@ -2,303 +2,435 @@
 
 # Symbiote
 
-**Autonomous AI agent gateway with web automation. Single process. Any machine.**
+**Build persistent AI agents. Single process. Any machine.**
 
-v2.1.0
+![](https://img.shields.io/badge/Version-2.0.0-4B0082?style=for-the-badge&labelColor=0D1117&logo=git&logoColor=white)
+![](https://img.shields.io/badge/Tools-38-4B0082?style=for-the-badge&labelColor=0D1117&logo=hammer&logoColor=white)
+![](https://img.shields.io/badge/Providers-8-4B0082?style=for-the-badge&labelColor=0D1117&logo=openai&logoColor=white)
+![](https://img.shields.io/badge/TypeScript-18K_LOC-4B0082?style=for-the-badge&labelColor=0D1117&logo=typescript&logoColor=white)
+<br>
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge&labelColor=0D1117)](LICENSE)
+[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-green.svg?style=for-the-badge&labelColor=0D1117&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![Platform](https://img.shields.io/badge/Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=for-the-badge&labelColor=0D1117&logo=windows&logoColor=white)]()
+
+A persistent daemon that connects messaging platforms, LLM providers, and tool execution into a single agentic loop. Embedded persistent memory. Real-time interrupts. Full web automation. Voice pipeline. Session-to-session continuity.
+
+**No Docker. No Redis. No cloud dependencies. Your machine. Your data. Your keys.**
+
+[Quick Start](#-quick-start) · [Architecture](#-architecture) · [Memory](#-persistent-memory) · [Providers](#-providers) · [Tools](#-tools) · [Web UI](#-web-ui)
 
 </div>
 
 ---
 
-## What Is Symbiote?
+## Overview
 
-Symbiote is a self-contained AI agent gateway. One TypeScript process that handles multi-channel communication (Discord, WhatsApp, webchat, HTTP API), persistent memory, web browsing, and tool execution.
+Symbiote is a framework for building AI agents that persist — across conversations, across sessions, across restarts. Where most agent frameworks treat each conversation as disposable, Symbiote treats every interaction as part of a continuous memory that compounds over time.
 
-Built by [Artifact Virtual](https://artifactvirtual.com).
-
----
-
-## Features
-
-- **Multi-channel** — Discord, WhatsApp, webchat, HTTP API from one process
-- **Web automation** — Playwright-powered browsing with persistent sessions and encrypted profiles
-- **Persistent memory** — VDB (vector database) with BM25 + TF-IDF hybrid search, 10-second real-time indexing
-- **31 tools** — exec, read, write, edit, web browsing (14 tools), memory, COMB, TTS, messaging
-- **Session management** — concurrent sessions, context windowing, auto-archival
-- **Provider chain** — multiple LLM providers with circuit-breaker failover
-- **Zero external dependencies** — no Docker, no Redis, no database server
+A single TypeScript process handles messaging (WhatsApp, Discord), LLM routing (8 providers), tool execution (38 tools), persistent memory (embedded VDB), voice (TTS/STT), web automation (Playwright), and session management — with zero external infrastructure.
 
 ---
 
 ## Quick Start
 
-### Prerequisites
+```bash
+# Install
+npm install -g symbiote
 
-- Node.js 20+
-- Python 3.10+ (for web automation sidecar)
-- Playwright Chromium: `python3 -m playwright install chromium`
+# Interactive setup — generates mach6.json + .env
+mach6 init
 
-### Install
+# Start the daemon
+mach6 start
+```
+
+Or from source:
 
 ```bash
-git clone https://github.com/Artifact-Virtual/mach6.git
-cd mach6
-npm install
-npx tsc
+git clone https://github.com/Artifact-Virtual/Symbiote.git
+cd Symbiote && npm install && npm run build
+node dist/gateway/daemon.js --config=mach6.json
 ```
 
-### Configure
-
-```bash
-cp mach6.example.json mach6.json
-```
-
-Required fields:
-```json
-{
-  "llm": {
-    "provider": "copilot",
-    "model": "claude-sonnet-4-20250514",
-    "maxTokens": 16384
-  },
-  "discord": {
-    "enabled": true,
-    "token": "YOUR_DISCORD_BOT_TOKEN"
-  }
-}
-```
-
-### Run
-
-```bash
-node dist/gateway/daemon.js
-```
-
-Boot output:
-```
-SYMBIOTE v2.1.0 — Autonomous Agent Gateway
-[symbiote] Tools registered: 31
-[symbiote] Discord: connected
-[symbiote] WhatsApp: connected  
-[symbiote] Web UI: http://localhost:3009
-[symbiote] SYMBIOTE READY
-```
+> **Windows:** Fully supported. Use `.\install.ps1` for automated setup or `node dist/gateway/daemon.js --config=mach6.json`.
 
 ---
 
 ## Architecture
 
 ```
-                    Symbiote Gateway
-                    ================
-                    
-  Discord ──────┐
-  WhatsApp ─────┤  Agent Pipeline
-  Webchat ──────┤  - System prompt + context window
-  HTTP API ─────┤  - Tool execution (31 tools)
-                |  - LLM provider chain w/ failover
-                |  - Response streaming
-                |
-                |  Session Manager
-                |  - Per-user sessions
-                |  - Auto-archival on context limit
-                |  - Context windowing
-                |
-                |  VDB Memory Engine
-                |  - BM25 keyword index
-                |  - TF-IDF semantic vectors
-                |  - 10-second real-time pulse
-                |  - JSONL persistence
-                |
-                |  Web Suite (Playwright)
-                |  - Python sidecar (JSON-RPC)
-                |  - Encrypted browser profiles
-                |  - Multi-tab browsing
-                |  - Screenshot pipeline
-                |
-                |  COMB Persistence
-                |  - Stage/recall across restarts
-                |  - HEKTOR vectorization sidecar
-                └──────────────────────
+Channels → Router → Message Bus → Agent Runner → LLM Provider
+  ↑                     ↑              ↑              ↑
+Discord            Priority Queue   Context Store   Anthropic
+WhatsApp           Coalescing       VDB Memory      OpenAI
+HTTP API           Interrupts       COMB Staging    Gemini
+Web UI             Backpressure     Voice Pipeline  Groq / xAI / Ollama
+```
+
+| Layer | What It Does |
+|-------|-------------|
+| **Channels** | WhatsApp (Baileys), Discord (discord.js), HTTP API, Web UI — all bidirectional with typing indicators, reactions, read receipts, media |
+| **Message Bus** | Priority queue with interrupt coalescing. New messages preempt stale iterations. Backpressure prevents queue flooding |
+| **Sessions** | Per-chat conversation state with automatic archival. Sub-agent spawning for parallel work. Configurable budgets |
+| **Agent Runner** | The agentic loop — assembles context, calls LLM, executes tools, manages iterations. Handles blink (budget refresh) and pulse (heartbeat scheduling) |
+| **Context Store** | Bridge between attention and memory. Truncated messages get absorbed into VDB. Every iteration queries VDB for relevant prior context. Nothing is ever truly lost |
+| **Context Monitor** | Three-threshold compaction (70/80/90% capacity). Emergency flush on critical. Auto-stages to COMB before compaction |
+| **VDB** | Embedded persistent memory — BM25 + TF-IDF hybrid search. Zero dependencies. JSONL append-only storage. 10-second real-time pulse indexes new messages incrementally |
+| **COMB** | Session-to-session staging. The agent's explicit "remember this" mechanism. Now a pure VDB wrapper — no file storage, no Python, no IPC |
+| **Voice** | Inbound: auto-transcribe voice notes (faster-whisper STT). Outbound: generate voice replies (Edge TTS, 6 voices). Platform-native delivery |
+| **Providers** | 8 LLM backends with automatic failover, retry with backoff, streaming support. Model-agnostic tool calling |
+| **Tools** | 38 built-in tools: filesystem, shell, web automation, messaging, memory, process management, vision, TTS |
+| **IPC Identity** | HMAC-SHA256 signed inter-agent communication. Agents verify each other cryptographically |
+| **Security** | Input sanitization, prompt injection guards, tool policy engine, configurable whitelists |
+
+---
+
+## Persistent Memory
+
+The core innovation. Three layers work together so agents never lose context:
+
+### VDB — Embedded Vector Database
+
+Zero-dependency persistent memory built into the runtime.
+
+- **Hybrid search:** BM25 keyword matching (40%) + TF-IDF sparse vectors with cosine similarity (60%)
+- **Storage:** JSONL append-only files. Lazy load on first query. Idle eviction after 5 minutes
+- **Real-time pulse:** Every 10 seconds, indexes new messages from active sessions. Only human/assistant turns above 15 chars — tool noise is excluded
+- **Session archives:** Completed sessions get auto-ingested. Nothing vanishes when a conversation ends
+- **Queried every iteration:** Before each LLM call, the Context Store pulls relevant prior knowledge from VDB and injects it after the system prompt
+
+```typescript
+// The agent sees this automatically — no manual search needed
+[RETRIEVED CONTEXT — relevant prior knowledge from your memory]:
+  [whatsapp, 3h ago, relevance=89%] Discussion about API architecture...
+  [discord, 2d ago, relevance=72%] Decision to use HMAC for IPC...
+```
+
+### COMB — Session-to-Session Memory
+
+The agent's explicit staging mechanism. Two tools:
+
+- `comb_stage` — "Remember this for next session." Writes to VDB with `comb` source tag
+- `comb_recall` — "What did I stage?" Retrieves all COMB entries, most recent first
+
+COMB is now a pure VDB wrapper. No file storage, no Python process, no IPC protocol. Stage → VDB → searchable forever.
+
+### Context Store — The Bridge
+
+When `truncateContext` drops old messages to fit the token budget, the Context Store absorbs them into VDB. On every iteration, it queries VDB with recent conversation context and injects relevant prior knowledge. The context window becomes a sliding viewport over persistent memory.
+
+---
+
+## Providers
+
+8 LLM backends. Automatic failover chain — if provider A fails, try B, then C.
+
+| Provider | Models | Notes |
+|----------|--------|-------|
+| **Anthropic** | Claude 4 Sonnet, Opus, Haiku | Primary. Full tool use, streaming |
+| **OpenAI** | GPT-4o, GPT-4, o1 | Full tool use, streaming |
+| **Google Gemini** | Gemini 2.5 Pro/Flash | Native tool calling |
+| **Groq** | Llama, Mixtral, Gemma | Fast inference. Free tier |
+| **xAI** | Grok | Tool use support |
+| **GitHub Copilot** | GPT-4o via Copilot | Free with GitHub account |
+| **Ollama** | Any GGUF model | Local, private, offline |
+| **GLADIUS** | Custom architecture | Artifact Virtual's native model |
+
+Configure failover chains in `mach6.json`:
+
+```json
+{
+  "providers": [
+    { "type": "anthropic", "model": "claude-sonnet-4-20250514" },
+    { "type": "openai", "model": "gpt-4o", "fallback": true },
+    { "type": "ollama", "model": "llama3.1:8b", "fallback": true }
+  ]
+}
 ```
 
 ---
 
-## Tools (31)
+## Tools
 
-### Core (5)
+38 built-in tools across 8 categories:
+
+### Filesystem
 | Tool | Description |
 |------|-------------|
-| `exec` | Execute shell commands |
-| `read` | Read file contents |
-| `write` | Write/create files |
-| `edit` | Find-and-replace in files |
-| `message` | Send messages to channels |
+| `read` | Read file contents with optional offset/limit for large files |
+| `write` | Write content to file. Creates parent directories automatically |
+| `edit` | Surgical text replacement — find exact string, replace it |
 
-### Web Automation (14)
+### Shell & Processes
 | Tool | Description |
 |------|-------------|
-| `web_browse` | Navigate to URL, extract page content |
-| `web_click` | Click element by CSS selector or text |
+| `exec` | Execute shell commands with timeout, working directory, PTY support |
+| `process_start` | Start background processes. Returns handle for polling |
+| `process_poll` | Poll background process for new output |
+| `process_kill` | Kill a background process |
+| `process_list` | List all background processes |
+
+### Web Automation (Playwright)
+| Tool | Description |
+|------|-------------|
+| `web_browse` | Navigate to URL, return text + screenshot |
+| `web_click` | Click elements by CSS selector or text content |
 | `web_type` | Type into input fields |
-| `web_screenshot` | Capture page as image |
-| `web_extract` | Extract content by CSS selector |
-| `web_scroll` | Scroll viewport |
-| `web_wait` | Wait for element or navigation |
-| `web_session` | Switch browser profile |
-| `web_tab_open` | Open new browser tab |
+| `web_screenshot` | Capture viewport or full page |
+| `web_extract` | Extract text from specific CSS selectors |
+| `web_scroll` | Scroll up, down, or to specific elements |
+| `web_wait` | Wait for elements or navigation |
+| `web_session` | Switch browser profiles (isolated cookies/storage) |
+| `web_tab_open` | Open new browser tabs |
 | `web_tab_switch` | Switch between tabs |
 | `web_tab_close` | Close current tab |
 | `web_tabs` | List all open tabs |
-| `web_download` | Save downloaded file |
-| `web_upload` | Upload file to input |
+| `web_download` | Download files from pages or URLs |
+| `web_upload` | Upload files to file input elements |
+| `web_fetch` | Fetch URL content as plain text (strips HTML) |
 
-### Memory (3)
+### Messaging
 | Tool | Description |
 |------|-------------|
-| `memory_recall` | Search VDB with hybrid BM25 + TF-IDF scoring |
-| `memory_ingest` | Bootstrap session archives into VDB |
-| `memory_stats` | Show VDB statistics |
+| `message` | Send messages, media, reactions across WhatsApp/Discord |
+| `typing` | Send typing indicators |
+| `presence` | Update online/offline status |
+| `delete_message` | Delete messages |
+| `mark_read` | Send read receipts |
 
-### COMB (2)
+### Memory
 | Tool | Description |
 |------|-------------|
-| `comb_stage` | Persist context for next session |
-| `comb_recall` | Recall context from previous sessions |
+| `memory_search` | Hybrid search across all indexed memory (HEKTOR) |
+| `memory_recall` | Search persistent memory with source filtering |
+| `memory_ingest` | Ingest conversation history into persistent memory |
+| `memory_stats` | Show memory database statistics |
+| `comb_recall` | Retrieve staged session-to-session memories |
+| `comb_stage` | Stage information for the next session |
 
-### Communication (5)
+### Agents
 | Tool | Description |
 |------|-------------|
-| `discord_send` | Send Discord message |
-| `discord_react` | React to Discord message |
-| `whatsapp_send` | Send WhatsApp message |
-| `tts_speak` | Text-to-speech |
-| `tts_stop` | Stop TTS playback |
+| `spawn` | Spawn sub-agents for parallel background tasks |
+| `subagent_status` | Check, list, kill, or steer sub-agents |
 
-### Utility (2)
+### Media
 | Tool | Description |
 |------|-------------|
-| `sleep` | Pause execution |
-| `think` | Internal reasoning (not sent to user) |
+| `image` | Analyze images with vision models (local files or URLs) |
+| `tts` | Text-to-speech with 6 voices (Edge TTS, free) |
 
 ---
 
-## Web Automation
+## Web UI
 
-Symbiote includes a full web browsing suite powered by a Python Playwright sidecar.
+Built-in chat interface at `http://localhost:{webPort}`. Dark glass aesthetic. Features:
 
-### How It Works
+- Real-time streaming responses via Server-Sent Events
+- Tool call visualization — see what the agent is doing
+- Session management with configurable IDs
+- File upload support
+- Mobile responsive
+- Bound to localhost by default (configurable via `webHost`)
 
-```
-Agent calls web_browse("https://example.com")
-    |
-    TypeScript tool spawns Python sidecar (if not running)
-    |
-    Sidecar: Playwright opens page -> extracts text -> takes screenshot
-    |
-    Returns: { title, url, text (4000 token cap), screenshot_path }
-    |
-    Agent reasons about page content, decides next action
-    |
-    Sidecar closes after 5min idle (zero resource cost when not browsing)
-```
+---
 
-### Browser Profiles
+## Channels
 
-Encrypted browser profiles persist cookies and sessions:
+### WhatsApp
+Full-featured WhatsApp integration via Baileys:
+- Text, images, audio, video, documents, stickers
+- Voice note transcription (automatic STT)
+- Read receipts, typing indicators, presence
+- Reactions and replies
+- Group chat support
+- QR code authentication
 
-```
-~/.symbiote/profiles/
-  default/
-    cookies.enc        -- AES-256 encrypted
-    config.json
-  ali/
-  ava/
-  scarlet/
-```
+### Discord
+Complete Discord bot integration:
+- Text channels and DMs
+- Embeds, reactions, mentions
+- Voice channel awareness
+- Slash commands (optional)
+- Multi-guild support
 
-Switch profiles: `web_session("ali")` loads saved cookies. Logged-in sessions survive restarts.
-
-### Security
-
-- Credentials never enter LLM context. Agent sees page text only.
-- Password fields detected but not read. Flagged for human intervention.
-- Profile isolation. Separate browser contexts per profile.
-- AES-256 cookie encryption at rest.
-- Downloads sandboxed to ~/.symbiote/downloads/
+### HTTP API
+RESTful API for programmatic access:
+- `POST /api/v1/chat` — send messages
+- `GET /api/v1/sessions` — list sessions
+- Server-Sent Events for streaming
+- IPC identity verification (HMAC-SHA256)
 
 ---
 
 ## Configuration
 
-Config file: `mach6.json` (name preserved for backward compatibility)
+All configuration lives in `mach6.json`:
 
 ```json
 {
-  "llm": {
-    "provider": "copilot",
-    "model": "claude-sonnet-4-20250514",
-    "maxTokens": 16384,
-    "temperature": 0.7
+  "name": "my-agent",
+  "provider": {
+    "type": "anthropic",
+    "model": "claude-sonnet-4-20250514"
   },
-  "discord": {
-    "enabled": true,
-    "token": "BOT_TOKEN"
+  "channels": {
+    "whatsapp": { "enabled": true },
+    "discord": { "enabled": true, "token": "..." }
   },
-  "whatsapp": {
-    "enabled": true,
-    "authDir": ".wwebjs_auth"
+  "tools": {
+    "enabled": ["read", "write", "exec", "web_browse", "memory_recall"],
+    "disabled": []
   },
-  "webPort": 3009,
-  "webHost": "0.0.0.0",
-  "agentFile": ".ava/agent.md",
-  "sessionDir": ".sessions",
-  "maxContextMessages": 100,
-  "maxContextTokens": 32000
+  "sessions": {
+    "maxIterations": 50,
+    "maxTokens": 200000
+  },
+  "webPort": 3000,
+  "cron": {
+    "heartbeat": "*/15 * * * *"
+  }
 }
 ```
 
-### Environment Variables
+Secrets go in `.env`:
 
-| Variable | Purpose |
-|----------|---------|
-| `SYMBIOTE_ENCRYPTION_KEY` | AES-256 key for browser profile encryption |
-| `COPILOT_PROXY_URL` | URL for Copilot proxy LLM provider |
-| `OPENAI_API_KEY` | OpenAI API key (if using OpenAI provider) |
-| `ANTHROPIC_API_KEY` | Anthropic API key (if using Anthropic provider) |
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+DISCORD_TOKEN=...
+```
+
+Run `mach6 init` to generate both interactively.
 
 ---
 
-## Deployment
+## Agentic Features
 
-### Systemd (Linux)
+### Blink — Budget Refresh
+When an agent approaches its iteration limit, Blink seamlessly continues into a fresh budget. The conversation carries over. The user sees nothing. No "[Budget exhausted]" messages.
 
-```ini
-[Unit]
-Description=Symbiote Gateway
-After=network.target
+### Pulse — Heartbeat Scheduling
+Periodic heartbeats fire on a cron schedule. Agents use these for batch health checks, monitoring, proactive updates — anything that should happen on a schedule without human prompting.
 
-[Service]
-Type=simple
-WorkingDirectory=/opt/ava/mach6
-ExecStart=/usr/bin/node dist/gateway/daemon.js
-Restart=always
-RestartSec=5
+### Context Monitor — Adaptive Compaction
+Three thresholds (70/80/90%) manage context window pressure:
+- **70%**: Summary compaction of older messages
+- **80%**: Aggressive compaction with COMB auto-staging
+- **90%**: Emergency flush — stage everything critical, compact hard
 
-[Install]
-WantedBy=default.target
+### Sub-Agents — Parallel Execution
+Spawn background workers for long-running tasks. The main agent continues conversing while sub-agents research, build, monitor. Up to 3 levels of nesting.
+
+### Temperature Adaptation
+Dynamic temperature adjustment based on task type — lower for code/analysis, higher for creative work. Automatic detection from context.
+
+---
+
+## IPC Identity
+
+Agents can verify each other's identity when communicating:
+
+```typescript
+// Agent A signs its request
+headers: {
+  'ipc-agent-id': 'ava',
+  'ipc-signature': hmacSha256(body, sharedSecret)
+}
+
+// Agent B verifies
+if (verifySignature(body, signature, sharedSecret)) {
+  // Trusted inter-agent communication
+}
 ```
 
-### NSSM (Windows)
+Keyring-based. Each agent has a unique ID and shared secret. Non-IPC requests (human users) pass through unaffected.
 
-```powershell
-nssm install symbiote "C:\Program Files\nodejs\node.exe" "dist\gateway\daemon.js"
-nssm set symbiote AppDirectory "C:\path\to\symbiote"
-nssm start symbiote
+---
+
+## Installation
+
+### One-command install
+
+```bash
+# Linux/macOS
+curl -fsSL https://raw.githubusercontent.com/Artifact-Virtual/Symbiote/master/install.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/Artifact-Virtual/Symbiote/master/install.ps1 | iex
 ```
+
+### From source
+
+```bash
+git clone https://github.com/Artifact-Virtual/Symbiote.git
+cd Symbiote
+npm install
+npm run build
+cp mach6.example.json mach6.json
+cp .env.example .env
+# Edit mach6.json and .env with your keys
+node dist/gateway/daemon.js --config=mach6.json
+```
+
+### systemd service
+
+```bash
+cp mach6-gateway.service ~/.config/systemd/user/
+systemctl --user enable --now mach6-gateway
+```
+
+---
+
+## Project Structure
+
+```
+src/
+├── agent/           # Runner, context management, blink, pulse
+│   ├── runner.ts          # The agentic loop
+│   ├── context-store.ts   # VDB retrieval + absorption bridge
+│   ├── context-monitor.ts # Token budget management
+│   ├── blink.ts           # Seamless budget refresh
+│   └── pulse.ts           # Heartbeat scheduler
+├── channels/        # WhatsApp, Discord, HTTP adapters
+├── config/          # Configuration loading + validation
+├── gateway/         # Daemon entry point
+├── memory/          # VDB engine + integrity checks
+├── providers/       # 8 LLM provider implementations
+├── sessions/        # Session manager, sub-agents, queue
+├── security/        # Sanitizer, prompt guards
+├── tools/           # 38 built-in tools + MCP bridge
+│   └── builtin/     # All tool implementations
+├── voice/           # STT/TTS pipeline
+└── web/             # HTTP API + Web UI
+```
+
+---
+
+## Requirements
+
+- **Node.js** 20+ (LTS recommended)
+- **npm** 9+
+- **OS:** Windows, Linux, or macOS
+- At least one LLM provider API key (or Ollama for fully local)
+
+Optional:
+- **Playwright** (auto-installed on first `web_browse` call)
+- **faster-whisper** (for voice note transcription)
+- **edge-tts** (for text-to-speech, pip install)
 
 ---
 
 ## License
 
-Proprietary. Artifact Virtual. All rights reserved.
+MIT — see [LICENSE](LICENSE)
+
+---
+
+<div align="center">
+
+**Built by [Artifact Virtual](https://github.com/Artifact-Virtual)**
+
+*Your machine. Your data. Your keys.*
+
+</div>
