@@ -224,6 +224,23 @@ export class VectorDB {
       });
   }
 
+  /** Get the k most recent documents from a specific source (chronological). */
+  recent(source: string, k = 10): Array<{ text: string; timestamp: number; id: string }> {
+    this.ensureLoaded();
+    this.lastAccess = Date.now();
+
+    const matching: Array<{ text: string; timestamp: number; id: string }> = [];
+    for (const doc of this.docs!.values()) {
+      if (doc.source === source) {
+        matching.push({ text: doc.text, timestamp: doc.timestamp, id: doc.id });
+      }
+    }
+
+    // Sort by timestamp descending (most recent first), take k
+    matching.sort((a, b) => b.timestamp - a.timestamp);
+    return matching.slice(0, k);
+  }
+
   /** Get stats. */
   stats(): VDBStats {
     this.ensureLoaded();

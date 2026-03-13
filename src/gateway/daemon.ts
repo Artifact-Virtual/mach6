@@ -42,7 +42,7 @@ import {
 import { ttsTool } from '../tools/builtin/tts.js';
 import { webFetchTool } from '../tools/builtin/web-fetch.js';
 import { memorySearchTool } from '../tools/builtin/memory.js';
-import { combRecallTool, combStageTool, getNativeCombStore, setCombVdbHook } from '../tools/builtin/comb.js';
+import { combRecallTool, combStageTool, setCombVdbHook, flushMessages } from '../tools/builtin/comb.js';
 import { vdbSearchTool, vdbIngestTool, vdbStatsTool } from '../tools/builtin/memory-vdb.js';
 import { webBrowseTool, webClickTool, webTypeTool, webScreenshotTool, webExtractTool, webScrollTool, webWaitTool, webSessionTool, webTabOpenTool, webTabSwitchTool, webTabCloseTool, webTabsTool, webDownloadTool, webUploadTool } from '../tools/builtin/web-browser.js';
 import { createSpawnTool, createSubAgentStatusTool } from '../tools/builtin/spawn.js';
@@ -268,8 +268,12 @@ export class SymbioteGateway {
       transcriptDir: path.join(ws || '.', '.sessions', 'transcripts'),
       onCombStage: async (content: string) => {
         try {
-          const store = getNativeCombStore(ws);
-          store.stage(content, 'context-monitor');
+          if (this.vdbInstance) {
+            this.vdbInstance.index({
+              id: '', text: content.length > 2000 ? content.slice(0, 2000) : content,
+              source: 'context-monitor', role: 'context', timestamp: Date.now(),
+            });
+          }
         } catch (e) {
           console.error('[context-monitor] COMB stage failed:', e);
         }
@@ -464,18 +468,19 @@ export class SymbioteGateway {
       this.contextStore.ingestBoot(texts);
     }
 
-    // Wire COMB→VDB hook: every comb_stage also indexes into VDB
+    // Wire COMB→VDB: stage indexes into VDB, recall queries VDB
     const vdb = this.vdbInstance!;
-    setCombVdbHook((text: string, source: string) => {
-      vdb.index({
-        id: '',
-        text: text.length > 2000 ? text.slice(0, 2000) : text,
-        source,
-        role: 'context',
-        timestamp: Date.now(),
-        sessionId: 'comb',
-      });
-    });
+    setCombVdbHook(
+      // indexFn
+      (text: string, source: string) => {
+        vdb.index({
+          id: '', text: text.length > 2000 ? text.slice(0, 2000) : text,
+          source, role: 'context', timestamp: Date.now(), sessionId: 'comb',
+        });
+      },
+      // recentFn
+      (source: string, k: number) => vdb.recent(source, k),
+    );
 
     console.log(`${palette.dim}  [context-store]${palette.reset} ${palette.green}Ready${palette.reset} — memory retrieval active, COMB→VDB wired`);
   }
@@ -1540,8 +1545,6 @@ export class SymbioteGateway {
       const RECENCY_WINDOW = 24 * 60 * 60 * 1000;
       let flushedCount = 0;
 
-      const nativeStore = getNativeCombStore(this.config.workspace);
-
       for (const summary of sessionSummaries) {
         if (now - summary.updatedAt > RECENCY_WINDOW) continue;
 
@@ -1549,12 +1552,12 @@ export class SymbioteGateway {
         if (!session || session.messages.length === 0) continue;
 
         const sessionLabel = summary.label ?? summary.id;
-        nativeStore.flushMessages(sessionLabel, session.messages, tailMessages);
+        flushMessages(sessionLabel, session.messages, tailMessages);
         flushedCount++;
       }
 
       if (flushedCount > 0) {
-        console.log(`${palette.dim}  [comb]${palette.reset} ${palette.green}Auto-flushed${palette.reset} ${flushedCount} session(s) → native COMB`);
+        console.log(`${palette.dim}  [comb]${palette.reset} ${palette.green}Auto-flushed${palette.reset} ${flushedCount} session(s) → VDB`);
       } else {
         console.log(`${palette.dim}  [comb]${palette.reset} No recent sessions to flush`);
       }

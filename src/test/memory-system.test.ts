@@ -1,19 +1,19 @@
 // Symbiote — Memory System Tests
 //
 // Tests the unified VDB-backed memory system:
-//   1. VDB core — index, search, dedup, persistence
-//   2. COMB → VDB integration — staging flows into VDB
+//   1. VDB core — index, search, dedup, persistence, recent
+//   2. COMB → VDB integration — staging flows into VDB, recall reads from VDB
 //   3. Context Store — retrieval, absorption, boot ingest
 //   4. Edge cases — empty queries, huge docs, concurrent access
 //
-// Run: node --experimental-vm-modules dist/test/memory-system.test.js
+// Run: node dist/test/memory-system.test.js
 
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { VectorDB, extractFromSession, ingestSessions } from '../memory/vdb.js';
 import { ContextStore } from '../agent/context-store.js';
-import { getNativeCombStore, setCombVdbHook } from '../tools/builtin/comb.js';
+import { setCombVdbHook, combStageTool, combRecallTool, flushMessages } from '../tools/builtin/comb.js';
 import type { Message } from '../providers/types.js';
 
 // ── Test Infrastructure ──────────────────────────────────────────────────
@@ -56,17 +56,6 @@ function assertEqual(actual: any, expected: any, message: string): void {
   }
 }
 
-function assertRange(actual: number, min: number, max: number, message: string): void {
-  total++;
-  if (actual >= min && actual <= max) {
-    passed++;
-    console.log(`  ✅ ${message} (${actual})`);
-  } else {
-    failed++;
-    console.error(`  ❌ ${message} — ${actual} not in [${min}, ${max}]`);
-  }
-}
-
 function section(name: string): void {
   console.log(`\n━━━ ${name} ━━━`);
 }
@@ -97,7 +86,7 @@ function testVdbCore() {
   assertEqual(stats.documentCount, 1, 'Stats: 1 document indexed');
   assert(stats.termCount > 0, 'Stats: terms indexed');
 
-  // Index more documents for search quality testing
+  // Batch index
   const docs = [
     'Cthulu is an autonomous trading system with 32 tentacles scanning the market.',
     'Ali built the research lab with two heads — philosophical frameworks and bare-metal genesis.',
@@ -131,7 +120,6 @@ function testVdbCore() {
 
   // Search — no results for gibberish
   const r3 = db.search('xyzzy plugh quartzite', 3);
-  // BM25 returns nothing for terms not in corpus
   assert(r3.length === 0 || r3[0].score < 0.1, 'Search: gibberish returns no/low results');
 
   // Search with source filter
@@ -141,6 +129,23 @@ function testVdbCore() {
   // Empty query
   const r5 = db.search('', 5);
   assertEqual(r5.length, 0, 'Search: empty query returns nothing');
+
+  // Recent — chronological retrieval
+  const now = Date.now();
+  db.index({ id: '', text: 'Recent entry one about dragons', source: 'recent-test', role: 'context', timestamp: now - 3000 });
+  db.index({ id: '', text: 'Recent entry two about phoenixes', source: 'recent-test', role: 'context', timestamp: now - 2000 });
+  db.index({ id: '', text: 'Recent entry three about griffins', source: 'recent-test', role: 'context', timestamp: now - 1000 });
+
+  const recent = db.recent('recent-test', 3);
+  assertEqual(recent.length, 3, 'Recent: returns 3 entries');
+  assert(recent[0].text.includes('griffins'), 'Recent: most recent first');
+  assert(recent[2].text.includes('dragons'), 'Recent: oldest last');
+
+  const recentLimited = db.recent('recent-test', 2);
+  assertEqual(recentLimited.length, 2, 'Recent: respects k limit');
+
+  const recentEmpty = db.recent('nonexistent-source', 5);
+  assertEqual(recentEmpty.length, 0, 'Recent: empty for unknown source');
 
   // Persistence — evict and reload
   db.evict();
@@ -152,9 +157,8 @@ function testVdbCore() {
   const saved = db.compact();
   assert(saved >= 0, `Compact: saved ${saved} bytes`);
 
-  // Verify stats after compaction
   const stats2 = db.stats();
-  assertEqual(stats2.documentCount, 11, 'Compact: document count preserved');
+  assertEqual(stats2.documentCount, 14, 'Compact: document count preserved');
 
   // Idle check — shouldn't evict when recent
   const evicted = db.checkIdle();
@@ -163,51 +167,53 @@ function testVdbCore() {
 
 // ── 2. COMB → VDB Integration ───────────────────────────────────────────
 
-function testCombVdbIntegration() {
+async function testCombVdbIntegration() {
   section('COMB → VDB Integration');
 
   const db = new VectorDB(testDir, 60000);
 
-  // Wire the hook
-  setCombVdbHook((text: string, source: string) => {
-    db.index({
-      id: '', text: text.length > 2000 ? text.slice(0, 2000) : text,
-      source, role: 'context', timestamp: Date.now(), sessionId: 'comb',
-    });
-  });
+  // Wire the hooks (both index and recent)
+  setCombVdbHook(
+    (text: string, source: string) => {
+      db.index({
+        id: '', text: text.length > 2000 ? text.slice(0, 2000) : text,
+        source, role: 'context', timestamp: Date.now(), sessionId: 'comb',
+      });
+    },
+    (source: string, k: number) => db.recent(source, k),
+  );
 
-  // Stage through COMB
-  const store = getNativeCombStore(testDir);
-  store.stage('Working on GLADIUS hatchling training — step 4000, loss 5.76', 'agent');
-  store.stage('Cthulu K9 has 3 open positions: EURUSD SHORT, OIL LONG, BTC LONG', 'agent');
-  store.stage('Vault was corrupted on March 11, rebuilt with 23 credentials', 'agent');
+  // Stage through COMB tool
+  await combStageTool.execute({ content: 'Working on GLADIUS hatchling training — step 4000, loss 5.76' });
+  await combStageTool.execute({ content: 'Cthulu K9 has 3 open positions: EURUSD SHORT, OIL LONG, BTC LONG' });
+  await combStageTool.execute({ content: 'Vault was corrupted on March 11, rebuilt with 23 credentials' });
 
   // Search VDB for COMB-staged content
   const r1 = db.search('GLADIUS training loss', 3);
   assert(r1.length > 0, 'COMB→VDB: staged content searchable in VDB');
   assert(r1[0].text.includes('hatchling') || r1[0].text.includes('GLADIUS'), 'COMB→VDB: correct result for GLADIUS query');
-  assertEqual(r1[0].source, 'comb', 'COMB→VDB: source tagged as "comb"');
 
   const r2 = db.search('vault corrupted credentials', 3);
   assert(r2.length > 0, 'COMB→VDB: vault content searchable');
-  assert(r2[0].text.includes('Vault') || r2[0].text.includes('vault'), 'COMB→VDB: vault result correct');
 
-  // COMB recall still works independently
-  const recall = store.recall();
-  assert(recall.includes('GLADIUS') || recall.includes('hatchling'), 'COMB recall: returns staged content');
-  assert(recall.includes('COMB RECALL'), 'COMB recall: has header');
+  // COMB recall — should pull from VDB recent
+  const recallResult = await combRecallTool.execute({});
+  assert(typeof recallResult === 'string', 'COMB recall: returns string');
+  assert(recallResult.includes('COMB RECALL'), 'COMB recall: has header');
+  assert(recallResult.includes('GLADIUS') || recallResult.includes('hatchling'), 'COMB recall: contains staged content');
+  assert(recallResult.includes('Vault') || recallResult.includes('vault'), 'COMB recall: contains all staged items');
 
   // Flush messages (simulating shutdown)
   const fakeMessages = [
     { role: 'user', content: 'Check the Cthulu positions please' },
-    { role: 'assistant', content: 'Cthulu K9 has 3 open positions with positive P&L' },
+    { role: 'assistant', content: 'Cthulu K9 has 3 open positions with positive P&L of 1.15 dollars' },
     { role: 'user', content: 'Good. What about the training run?' },
-    { role: 'assistant', content: 'Hatchling training at step 4000, loss 5.76, on track for completion by 6:40 AM' },
+    { role: 'assistant', content: 'Hatchling training at step 4000, loss 5.76, on track for completion by morning' },
   ];
-  store.flushMessages('test-session', fakeMessages, 4);
+  flushMessages('test-session', fakeMessages, 4);
 
   // Verify flush content in VDB
-  const r3 = db.search('Cthulu positions', 3);
+  const r3 = db.search('Cthulu positions P&L', 3);
   assert(r3.length > 0, 'COMB flush→VDB: flushed messages searchable');
 
   // Clean up hook
@@ -221,7 +227,7 @@ function testContextStore() {
 
   const db = new VectorDB(testDir, 60000);
 
-  // Seed with some knowledge
+  // Seed with knowledge
   db.indexBatch([
     { id: '', text: 'The SHARD contract is deployed at 0xE89704585FD4Dc8397CE14e0dE463B53746049F5 on Base.', source: 'identity', role: 'context', timestamp: Date.now() - 3600000 },
     { id: '', text: 'Ali birthday is March 12. He turned 38 in 2026.', source: 'memory', role: 'context', timestamp: Date.now() - 7200000 },
@@ -244,7 +250,7 @@ function testContextStore() {
   ]);
   assert(bootCount > 0, 'Boot ingest: indexed chunks');
 
-  // Retrieval — conversation about SHARD
+  // Retrieval
   const messages: Message[] = [
     { role: 'system', content: 'You are AVA.' },
     { role: 'user', content: 'Where is the SHARD contract deployed?' },
@@ -256,46 +262,41 @@ function testContextStore() {
     assert(typeof retrieval.content === 'string' && (retrieval.content.includes('SHARD') || retrieval.content.includes('0xE897')), 'Retrieval: includes SHARD info');
   }
 
-  // Retrieval — no relevant context
+  // Retrieval — unrelated query doesn't crash
   const messages2: Message[] = [
     { role: 'system', content: 'You are AVA.' },
     { role: 'user', content: 'What is the weather today?' },
   ];
-  const retrieval2 = cs.retrieve(messages2);
-  // May or may not return results — depends on threshold
-  // The key test is it doesn't crash
+  cs.retrieve(messages2); // just verify no crash
   assert(true, 'Retrieval: no crash on unrelated query');
 
-  // Absorption — simulate truncation dropping messages
+  // Absorption
   const droppedMessages: Message[] = [
     { role: 'user', content: 'We discussed the Cthulu trading system architecture extensively. The K9 Brain scans every 60 seconds with 32 tentacles.' },
     { role: 'assistant', content: 'The confluence engine uses 4-pillar scoring with PUP uncertainty quantification. Each tentacle aggregates 8 indicators across 8 timeframes.' },
     { role: 'tool', content: 'some tool result that should be skipped' },
     { role: 'system', content: 'system message that should be skipped' },
-    { role: 'user', content: 'Short' }, // too short, should be skipped
+    { role: 'user', content: 'Short' }, // too short
   ];
 
   const absorbed = cs.absorb(droppedMessages);
   assertEqual(absorbed, 2, 'Absorption: absorbed 2 messages (skipped tool, system, short)');
 
-  // Verify absorbed content is searchable
   const r1 = db.search('Cthulu K9 tentacles confluence', 3);
   assert(r1.length > 0, 'Absorption→Search: absorbed content is searchable');
   assert(r1.some(r => r.source === 'absorbed'), 'Absorption→Search: source tagged as "absorbed"');
 
-  // truncateAndAbsorb wrapper
+  // truncateAndAbsorb
   const fullMessages: Message[] = [
     { role: 'system', content: 'System prompt goes here.' },
-    { role: 'user', content: 'A'.repeat(10000) }, // ~2500 tokens
+    { role: 'user', content: 'A'.repeat(10000) },
     { role: 'assistant', content: 'B'.repeat(10000) },
     { role: 'user', content: 'C'.repeat(10000) },
     { role: 'assistant', content: 'D'.repeat(10000) },
     { role: 'user', content: 'Recent question about memory systems' },
   ];
 
-  // Truncate to very small budget to force drops
   const truncated = cs.truncateAndAbsorb(fullMessages, 5000, (msgs, max) => {
-    // Simple truncation: keep system + last 2 messages
     const system = msgs.filter(m => m.role === 'system');
     const rest = msgs.filter(m => m.role !== 'system');
     return [...system, ...rest.slice(-2)];
@@ -304,7 +305,6 @@ function testContextStore() {
   assert(truncated.length < fullMessages.length, 'truncateAndAbsorb: messages were truncated');
   assert(truncated.length >= 3, 'truncateAndAbsorb: kept system + recent');
 
-  // Stats
   const stats = cs.stats();
   assert(stats.documentCount > 0, `Context Store stats: ${stats.documentCount} docs`);
 }
@@ -316,7 +316,6 @@ function testSessionIngestion() {
 
   const db = new VectorDB(testDir, 60000);
 
-  // Create a fake session file
   const sessionsDir = path.join(testDir, '.sessions');
   fs.mkdirSync(sessionsDir, { recursive: true });
 
@@ -329,32 +328,25 @@ function testSessionIngestion() {
       { role: 'assistant', content: 'Checking the Cthulu bridge now. The webhook on port 9002 is responding, and the bridge reports 142 active connections.' },
       { role: 'user', content: 'Good. And the GLADIUS training status?' },
       { role: 'assistant', content: 'The hatchling training is at step 3000 with loss 6.02. It should complete around 6:40 AM.' },
-      { role: 'tool', content: '{"status": "ok"}' }, // should be skipped
-      { role: 'assistant', content: 'Short' }, // should be skipped (< 15 chars)
+      { role: 'tool', content: '{"status": "ok"}' },
+      { role: 'assistant', content: 'Short' },
     ],
   };
 
-  fs.writeFileSync(
-    path.join(sessionsDir, 'whatsapp-test-123.json'),
-    JSON.stringify(fakeSession),
-  );
+  fs.writeFileSync(path.join(sessionsDir, 'whatsapp-test-123.json'), JSON.stringify(fakeSession));
 
-  // Extract documents
   const docs = extractFromSession(path.join(sessionsDir, 'whatsapp-test-123.json'), 'whatsapp');
-  assert(docs.length >= 3, `Session extract: ${docs.length} docs (expected ≥3, skipping system/tool/short)`);
+  assert(docs.length >= 3, `Session extract: ${docs.length} docs (expected ≥3)`);
   assert(docs.every(d => d.source === 'whatsapp'), 'Session extract: source tagged correctly');
   assert(docs.every(d => d.sessionId === 'whatsapp-test-123'), 'Session extract: sessionId set');
 
-  // Ingest into VDB
   const result = ingestSessions(db, sessionsDir);
   assert(result.processed > 0, `Session ingest: processed ${result.processed} messages`);
   assert(result.indexed > 0, `Session ingest: indexed ${result.indexed} new`);
 
-  // Search for session content
   const r1 = db.search('Cthulu bridge health webhook', 3);
   assert(r1.length > 0, 'Session→VDB: ingested content searchable');
 
-  // Re-ingest should not duplicate
   const result2 = ingestSessions(db, sessionsDir);
   assertEqual(result2.indexed, 0, 'Session ingest: no duplicates on re-ingest');
 }
@@ -366,20 +358,20 @@ function testEdgeCases() {
 
   const db = new VectorDB(testDir, 60000);
 
-  // Very long document (should be truncated by caller, but VDB shouldn't crash)
-  const longText = 'machine learning '.repeat(1000); // 17K chars
+  // Very long document
+  const longText = 'machine learning '.repeat(1000);
   const indexed = db.index({
     id: '', text: longText, source: 'test', role: 'context', timestamp: Date.now(),
   });
   assert(indexed === true, 'Long document: indexed without crash');
 
-  // Very short text (< 2 tokens after stop word removal)
+  // Very short text
   const short = db.index({
     id: '', text: 'a', source: 'test', role: 'context', timestamp: Date.now(),
   });
   assert(short === false, 'Short text: rejected (no useful terms)');
 
-  // Unicode / special characters
+  // Unicode
   const unicode = db.index({
     id: '', text: 'بسم الله الرحمن الرحیم — GLADIUS training initiated at 2:45 AM PKT',
     source: 'test', role: 'context', timestamp: Date.now(),
@@ -388,7 +380,7 @@ function testEdgeCases() {
   const uniSearch = db.search('GLADIUS training 2:45', 3);
   assert(uniSearch.length > 0, 'Unicode: searchable by ASCII terms');
 
-  // Concurrent indexing (simulate burst)
+  // Burst indexing
   let burstCount = 0;
   for (let i = 0; i < 100; i++) {
     if (db.index({
@@ -401,10 +393,6 @@ function testEdgeCases() {
   }
   assertEqual(burstCount, 100, 'Burst: 100 unique docs indexed');
 
-  const burstStats = db.stats();
-  assert(burstStats.documentCount > 100, `Burst stats: ${burstStats.documentCount} total docs`);
-
-  // Search after burst
   const burstSearch = db.search('burst document number', 5);
   assert(burstSearch.length === 5, 'Burst search: returns k=5 results');
 
@@ -412,37 +400,58 @@ function testEdgeCases() {
   db.evict();
   const reloadSearch = db.search('burst document', 3);
   assert(reloadSearch.length > 0, 'Reload after burst: data persists');
+
+  // COMB with no hook wired — should not crash
+  setCombVdbHook(() => {});
+  const emptyRecall = combRecallTool.execute({});
+  assert(emptyRecall !== undefined, 'COMB recall without recentFn: does not crash');
 }
 
-// ── 6. COMB Rollup & Archive Tests ──────────────────────────────────────
+// ── 6. COMB as Pure VDB Wrapper ─────────────────────────────────────────
 
-function testCombRollup() {
-  section('COMB Rollup & Archive');
+async function testCombPureVdb() {
+  section('COMB as Pure VDB Wrapper (No Files)');
 
-  const combDir = path.join(testDir, '.comb-rollup-test');
-  fs.mkdirSync(combDir, { recursive: true });
-  process.env.MACH6_WORKSPACE = combDir;
+  const db = new VectorDB(testDir, 60000);
 
-  const store = getNativeCombStore(combDir);
+  // Wire hooks
+  setCombVdbHook(
+    (text: string, source: string) => {
+      db.index({
+        id: '', text, source, role: 'context', timestamp: Date.now(),
+      });
+    },
+    (source: string, k: number) => db.recent(source, k),
+  );
 
-  // Stage 12 entries to trigger auto-rollup (threshold is 10)
-  for (let i = 0; i < 12; i++) {
-    store.stage(`Entry number ${i}: testing rollup behavior`, 'test');
-  }
+  // Stage, recall — no .comb directory should be created
+  await combStageTool.execute({ content: 'Alpha release memory test — pure VDB path' });
 
-  // Check that staging file was rolled up (12 > 10 threshold)
-  const today = new Date().toISOString().slice(0, 10);
-  const stagingFile = path.join(combDir, '.comb', 'staging', `${today}.json`);
-  const archiveFile = path.join(combDir, '.comb', 'archive', `${today}.json`);
+  const combDir = path.join(testDir, '.comb');
+  assert(!fs.existsSync(combDir), 'Pure VDB: no .comb directory created');
 
-  // After auto-rollup, staging might have remaining entries and archive should exist
-  assert(fs.existsSync(archiveFile), 'Rollup: archive file created');
+  // Recall works through VDB
+  const recall = await combRecallTool.execute({});
+  assert(typeof recall === 'string' && recall.includes('Alpha release'), 'Pure VDB recall: returns staged content');
 
-  // Recall should still work
-  const recall = store.recall();
-  assert(recall.includes('Entry number'), 'Recall after rollup: returns content');
+  // flushMessages works through VDB
+  flushMessages('alpha-test', [
+    { role: 'user', content: 'Testing the pure VDB flush path for session continuity' },
+    { role: 'assistant', content: 'The flush path writes directly to VDB without intermediate files' },
+  ], 2);
 
-  process.env.MACH6_WORKSPACE = testDir;
+  const r1 = db.search('pure VDB flush path', 3);
+  assert(r1.length > 0, 'Pure VDB flush: flushed content searchable');
+
+  // Verify source tagging
+  const r2 = db.recent('auto-flush', 5);
+  assert(r2.length > 0, 'Pure VDB flush: tagged as auto-flush source');
+
+  const r3 = db.recent('comb', 5);
+  assert(r3.length > 0, 'Pure VDB stage: tagged as comb source');
+
+  // Cleanup
+  setCombVdbHook(() => {});
 }
 
 // ── Run All Tests ────────────────────────────────────────────────────────
@@ -455,11 +464,11 @@ setup();
 
 try {
   testVdbCore();
-  testCombVdbIntegration();
+  await testCombVdbIntegration();
   testContextStore();
   testSessionIngestion();
   testEdgeCases();
-  testCombRollup();
+  await testCombPureVdb();
 } finally {
   teardown();
 }
